@@ -15,6 +15,8 @@ from app.core.logging import setup_logging
 from app.services.pipeline.transcription_pipeline import TranscriptionPipeline
 from app.services.media.screenshot_extract import ScreenshotExtractionService
 from app.services.ocr.ocr_service import OCRService
+from app.services.pipeline.chunk_service import ChunkService
+from app.services.embeddings.embedding_service import EmbeddingService
 from app.services.storage.job_store import JobStore
 from app.services.transcription.whisper_service import WhisperTranscriptionService
 
@@ -63,13 +65,23 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         whisper = WhisperTranscriptionService(resolved)
         screenshot_service = ScreenshotExtractionService(resolved)
         ocr_service = OCRService(resolved)
+        chunk_service = ChunkService(resolved)
+        embedding_service = EmbeddingService(resolved)
         pipeline = TranscriptionPipeline(
-            resolved, job_store, whisper, screenshot_service, ocr_service
+            resolved,
+            job_store,
+            whisper,
+            screenshot_service,
+            ocr_service,
+            chunk_service,
+            embedding_service,
         )
         app.state.job_store = job_store
         app.state.whisper_service = whisper
         app.state.screenshot_service = screenshot_service
         app.state.ocr_service = ocr_service
+        app.state.chunk_service = chunk_service
+        app.state.embedding_service = embedding_service
         app.state.pipeline = pipeline
         yield
 

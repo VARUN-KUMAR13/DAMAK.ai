@@ -8,8 +8,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
-from app.api.deps import JobStoreDep, PipelineDep, SettingsDep
+from app.api.deps import EmbeddingDep, JobStoreDep, PipelineDep, SettingsDep
 from app.schemas.job import JobCreateResponse, JobDetailResponse, JobStatus
+from app.schemas.search import SearchRequest, SearchResponse
 from app.schemas.transcript import TranscriptPayload
 from app.services.pipeline.transcription_pipeline import TranscriptionPipeline
 
@@ -61,12 +62,14 @@ def get_job(job_id: UUID, job_store: JobStoreDep) -> JobDetailResponse:
         raise HTTPException(status_code=404, detail="Job not found.")
     transcript: Optional[TranscriptPayload] = None
     ocr_results: Optional[list[dict]] = None
+    chunks: Optional[list[dict]] = None
     tpath: Optional[str] = None
     if rec.transcript_path is not None:
         tpath = str(rec.transcript_path.resolve())
     if rec.status == JobStatus.COMPLETED:
         transcript = job_store.load_transcript(job_id)
         ocr_results = job_store.load_ocr_results(job_id)
+        chunks = job_store.load_chunks(job_id)
     return JobDetailResponse(
         job_id=rec.job_id,
         status=rec.status,
@@ -75,6 +78,7 @@ def get_job(job_id: UUID, job_store: JobStoreDep) -> JobDetailResponse:
         transcript_path=tpath,
         transcript=transcript,
         ocr_results=ocr_results,
+        chunks=chunks,
     )
 
 
@@ -91,3 +95,47 @@ def get_transcript(job_id: UUID, job_store: JobStoreDep) -> TranscriptPayload:
             detail="Transcript not found or job not completed yet.",
         )
     return payload
+
+
+@router.post(
+    "/search",
+    response_model=SearchResponse,
+    summary="Global semantic search across all processed lectures",
+)
+def search_global(
+    request: SearchRequest,
+    embeddings: EmbeddingDep,
+) -> SearchResponse:
+    results = embeddings.search_similar_chunks(
+        query=request.query,
+        job_id=request.job_id,
+        limit=request.limit
+    )
+    return SearchResponse(
+        query=request.query,
+        results=results,
+        total_matches=len(results)
+    )
+
+
+@router.get(
+    "/search/{job_id}",
+    response_model=SearchResponse,
+    summary="Semantic search within a specific lecture",
+)
+def search_job(
+    job_id: UUID,
+    query: str,
+    embeddings: EmbeddingDep,
+    limit: int = 5
+) -> SearchResponse:
+    results = embeddings.search_similar_chunks(
+        query=query,
+        job_id=job_id,
+        limit=limit
+    )
+    return SearchResponse(
+        query=query,
+        results=results,
+        total_matches=len(results)
+    )

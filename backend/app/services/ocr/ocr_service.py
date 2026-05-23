@@ -33,21 +33,12 @@ class OCRService:
                 logger.info("Initializing PaddleOCR engine (lang=%s)", self._settings.ocr_lang)
                 # Use a more robust initialization
                 kwargs = {
-                    "lang": self._settings.ocr_lang,
-                    "show_log": False
+                    "lang": self._settings.ocr_lang
                 }
                 
-                # Only add these if they are likely to be supported
-                # Some versions/wrappers might not support them directly in constructor
-                try:
-                    self._ocr = PaddleOCR(
-                        use_angle_cls=self._settings.ocr_use_angle_cls,
-                        use_gpu=self._settings.ocr_use_gpu,
-                        **kwargs
-                    )
-                except TypeError:
-                    logger.warning("PaddleOCR doesn't support use_angle_cls or use_gpu in constructor, trying defaults")
-                    self._ocr = PaddleOCR(**kwargs)
+                self._ocr = PaddleOCR(
+                    lang=self._settings.ocr_lang
+                )
                     
             except Exception as e:
                 logger.error("Failed to initialize PaddleOCR: %s", e)
@@ -115,7 +106,7 @@ class OCRService:
                 stats["processed"] += 1
                 # OCR processing
                 # result is a list of [box, (text, confidence)]
-                result = ocr_engine.ocr(str(img_path), cls=self._settings.ocr_use_angle_cls)
+                result = ocr_engine.ocr(str(img_path))
                 
                 # Debug logging for the first 3 screenshots
                 if stats["processed"] <= 3:

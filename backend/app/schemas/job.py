@@ -41,3 +41,7 @@ class JobDetailResponse(BaseModel):
         default=None,
         description="OCR text from screenshots when status is completed.",
     )
+    chunks: Optional[list[dict]] = Field(
+        default=None,
+        description="Multimodal semantic chunks when status is completed.",
+    )
