@@ -1,8 +1,92 @@
 # AI Lecture Intelligence System
 
-Monorepo for lecture capture, transcription, and downstream intelligence. **Phase 3** adds OCR processing using PaddleOCR to extract text from lecture slides and code screenshots.
+Monorepo for lecture capture, transcription, and downstream intelligence. **Phase 8** introduces the **DAMAK AI Knowledge Workspace**, a comprehensive academic second brain for studying lectures.
 
-## Backend (FastAPI)
+## 🌟 DAMAK AI Knowledge Workspace
+
+The Knowledge Workspace is a modern web-based dashboard that transforms raw lecture data into actionable intelligence:
+
+1.  **AI Notes System**: 
+    *   Generates structured markdown notes from multimodal context (OCR + Speech).
+    *   Multiple modes: `Easy`, `Standard`, `Deep Dive`, and `Exam Focus`.
+    *   Grounded citations linked to timestamps and screenshots.
+2.  **Multimodal Learning Interface**:
+    *   **Transcript Panel**: Synchronized text with timestamp jumping.
+    *   **Screenshot Timeline**: Visual navigation through lecture slides.
+    *   **AI Tutor**: RAG-powered chat for immediate clarification.
+3.  **Study Tools**:
+    *   **Flashcard Generator**: Automatic creation of Q&A and MCQs from key concepts.
+    *   **Smart Search**: Semantic retrieval across all indexed lectures.
+
+## 📦 Project Structure
+
+```text
+DAMAK-AI/
+├── backend/            # FastAPI Multimodal Engine
+├── frontend/
+│   ├── extension/      # Chrome Extension (Capture System)
+│   └── workspace/      # Next.js Knowledge Workspace (Dashboard)
+├── storage/            # Local Intelligence Storage
+...
+```
+
+## 🚀 Getting Started
+
+### 1. Start the Backend
+```powershell
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+### 2. Launch the Workspace
+```powershell
+cd frontend/workspace
+npm install
+npm run dev
+```
+
+### 3. Capture a Lecture
+Use the Chrome Extension to capture your session. Once processed, it will appear in your Knowledge Workspace.
+
+## 📖 New Intelligence APIs (Phase 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/intelligence/notes/generate` | Generate AI notes (Easy/Standard/Deep/Exam). |
+| `POST` | `/api/v1/intelligence/flashcards/generate` | Generate study flashcards (QA/MCQ). |
+
+## 🛠️ Setup & Installation
+
+### Backend
+
+1.  **Prerequisites**: Python 3.9+, FFmpeg, Ollama (with `phi3`).
+2.  **Install Dependencies**:
+    ```powershell
+    cd backend
+    pip install -r requirements.txt
+    ```
+3.  **Run API**:
+    ```powershell
+    uvicorn app.main:app --reload
+    ```
+
+### Chrome Extension
+
+1.  Open Chrome and go to `chrome://extensions/`.
+2.  Enable **Developer mode** (top right).
+3.  Click **Load unpacked**.
+4.  Select the `frontend/extension/` folder from this repository.
+5.  Pin the "DAMAK AI Capture" extension.
+
+## 📖 Usage Workflow
+
+1.  **Start Capture**: Open any lecture tab, click the extension icon, enter a title, and click **Start Capture**.
+2.  **Learn**: Attend your session. The extension captures screenshots every 5s and audio every 3s.
+3.  **Stop & Process**: Click **Stop & Process**. The backend will merge the stream and build your semantic knowledge base.
+4.  **Chat & Retrieval**: Use the `/api/v1/chat` endpoint (or a future dashboard) to ask questions like:
+    *   *"What were the three types of normalization mentioned?"*
+    *   *"Show me the slide where the 2-minute rule was explained."*
 
 ### Prerequisites
 
@@ -53,6 +137,9 @@ uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
 - `storage/transcripts/` — one JSON file per job (`{job_id}.json`)
 - `storage/screenshots/{job_id}/` — filtered keyframes (`frame_0001.jpg`, ...) plus `metadata.json`
 - `storage/ocr/{job_id}/` — OCR results (`ocr_results.json`)
+- `storage/chunks/{job_id}/` — semantic multimodal chunks (`chunks.json`)
+- `storage/embeddings/chroma_db/` — persistent vector database for semantic search
+- `storage/live/{session_id}/` — raw live capture data (audio chunks, screenshots)
 
 Paths default to `<PROJECT_ROOT>/storage/...`, where `PROJECT_ROOT` is the repo root (parent of `backend/`), unless overridden in `.env`.
 
@@ -61,8 +148,16 @@ Paths default to `<PROJECT_ROOT>/storage/...`, where `PROJECT_ROOT` is the repo 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/v1/jobs` | Multipart upload (`file` field). Returns `job_id`; processing runs after the response. |
-| `GET` | `/api/v1/jobs/{job_id}` | Job status, optional error message, transcript, and **OCR results** when `completed`. |
+| `GET` | `/api/v1/jobs/{job_id}` | Job status, optional error message, transcript, OCR results, and multimodal chunks when `completed`. |
 | `GET` | `/api/v1/transcripts/{job_id}` | Transcript JSON only (404 until completed). |
+| `POST` | `/api/v1/search` | Global semantic search across all processed lectures. |
+| `GET` | `/api/v1/search/{job_id}` | Semantic search within a specific lecture (requires `query` param). |
+| `POST` | `/api/v1/chat` | Multimodal RAG Chat: Ask questions and get answers with sources. |
+| `POST` | `/api/v1/live/start` | Start a new live capture session. |
+| `POST` | `/api/v1/live/{id}/upload-screenshot` | Upload a screenshot with timestamp (form-data). |
+| `POST` | `/api/v1/live/{id}/upload-audio` | Upload an audio chunk (file). |
+| `POST` | `/api/v1/live/{id}/stop` | Finalize session and trigger processing. |
+| `GET` | `/api/v1/live/{id}` | Get live session status. |
 
 #### Example: upload with curl (Windows / PowerShell)
 
@@ -150,15 +245,66 @@ The pipeline now includes an OCR stage using **PaddleOCR**. After screenshots ar
 ]
 ```
 
-### New environment variables (Phase 3)
+### Multimodal Chunking (Phase 4)
+
+The system now aligns OCR results with spoken segments to create semantically rich chunks for RAG:
+
+1. **Alignment**: Spoken text is grouped into segments (default ~150-250 words).
+2. **Context Enrichment**: Overlapping OCR slide text is merged into the chunk metadata.
+3. **Multimodal Mapping**: Each chunk is associated with specific screenshot filenames and timestamps.
+4. **Storage**: Chunks are saved in `storage/chunks/{job_id}/chunks.json`.
+
+`chunks.json` example:
+
+```json
+{
+  "chunk_id": "chunk_001",
+  "start_time": 10.0,
+  "end_time": 25.0,
+  "slide_text": "Normalization in DBMS",
+  "spoken_text": "Today we will discuss first normal form...",
+  "combined_text": "Slide Content:\nNormalization in DBMS\n\nSpoken Content:\nToday we will discuss first normal form...",
+  "screenshots": ["frame_0001.jpg"]
+}
+```
+
+### Semantic Search & Embeddings (Phase 5)
+
+The system now features high-performance semantic retrieval using **Sentence-Transformers** and **ChromaDB**:
+
+1. **Embedding Generation**: Multimodal chunks are converted into 384-dimensional vectors using the `all-MiniLM-L6-v2` model.
+2. **Vector Storage**: Embeddings and rich metadata (timestamps, screenshots, text) are stored in a persistent ChromaDB instance.
+3. **Semantic Retrieval**: Users can search across all lectures or within a specific one using natural language queries.
+4. **RAG-Ready**: The architecture is fully prepared for Retrieval-Augmented Generation (RAG) with LLMs.
+
+#### Search Example (curl)
+
+```powershell
+curl.exe -X POST "http://localhost:8000/api/v1/search" `
+  -H "Content-Type: application/json" `
+  -d '{"query": "How to stop procrastination?", "limit": 3}'
+```
+
+### Local RAG Chat (Phase 6)
+
+The system now integrates **Ollama** to provide a fully local, privacy-focused AI tutor experience:
+
+1. **Context Retrieval**: The system performs a semantic search to find the most relevant chunks for a user's question.
+2. **Prompt Engineering**: A specialized RAG prompt is built, including spoken text, slide text, and timestamps.
+3. **Local Inference**: The `phi3` model (running via Ollama) generates an answer based **only** on the lecture context.
+4. **Citations**: Every response includes the source chunks, allowing the user to jump to specific timestamps or view screenshots.
+
+#### Chat Example (curl)
+
+```powershell
+curl.exe -X POST "http://localhost:8000/api/v1/chat" `
+  -H "Content-Type: application/json" `
+  -d '{"question": "What is the 2 minute rule?", "top_k": 3}'
+```
+
+### New environment variables (Phase 6)
 
 Configure in `backend/.env`:
 
-- `STORAGE_OCR` — override OCR results root path
-- `OCR_LANG` — language for OCR (default: `en`)
-- `OCR_USE_GPU` — set to `True` if you have a compatible GPU and `paddlepaddle-gpu` installed
-- `OCR_USE_ANGLE_CLS` — enable text angle classification for rotated text
-
-## Out of scope (Phase 1-3)
-
-Later phases (Electron UI, ChromaDB, PDF export, etc.) are **not** included here.
+- `OLLAMA_BASE_URL` — local Ollama API URL (default: `http://localhost:11434`)
+- `OLLAMA_MODEL` — model name to use (default: `phi3`)

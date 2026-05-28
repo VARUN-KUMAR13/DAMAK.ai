@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
-from app.api.deps import EmbeddingDep, JobStoreDep, PipelineDep, SettingsDep
+from app.api.deps import EmbeddingDep, JobStoreDep, OllamaDep, PipelineDep, SettingsDep
+from app.schemas.chat import ChatRequest, ChatResponse, RetrievedSource
 from app.schemas.job import JobCreateResponse, JobDetailResponse, JobStatus
 from app.schemas.search import SearchRequest, SearchResponse
 from app.schemas.transcript import TranscriptPayload
+from app.services.llm.ollama_service import build_rag_prompt
 from app.services.pipeline.transcription_pipeline import TranscriptionPipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -52,27 +58,55 @@ async def create_job(
 
 
 @router.get(
+    "/jobs",
+    response_model=list[JobDetailResponse],
+    summary="List all lecture sessions/jobs",
+)
+def list_jobs(job_store: JobStoreDep) -> list[JobDetailResponse]:
+    records = job_store.list_all()
+    results = []
+    for rec in records:
+        results.append(
+            JobDetailResponse(
+                job_id=rec.job_id,
+                status=rec.status,
+                source_filename=rec.source_filename,
+                error_message=rec.error_message,
+            )
+        )
+    return results
+
+
+@router.get(
     "/jobs/{job_id}",
     response_model=JobDetailResponse,
-    summary="Get job status and transcript when ready",
+    summary="Get job details, status, transcript, OCR results, and chunks",
 )
 def get_job(job_id: UUID, job_store: JobStoreDep) -> JobDetailResponse:
     rec = job_store.get(job_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
+    if not rec:
+        raise HTTPException(status_code=404, detail="Job not found")
+
     transcript: Optional[TranscriptPayload] = None
     ocr_results: Optional[list[dict]] = None
     chunks: Optional[list[dict]] = None
     tpath: Optional[str] = None
     if rec.transcript_path is not None:
         tpath = str(rec.transcript_path.resolve())
-    if rec.status == JobStatus.COMPLETED:
-        transcript = job_store.load_transcript(job_id)
-        ocr_results = job_store.load_ocr_results(job_id)
-        chunks = job_store.load_chunks(job_id)
+    
+    # Always try to load if status is completed, or if they exist
+    transcript = job_store.load_transcript(job_id)
+    ocr_results = job_store.load_ocr_results(job_id)
+    chunks = job_store.load_chunks(job_id)
+    
+    # Force status to completed if chunks exist but status is still pending/processing
+    current_status = rec.status
+    if chunks and current_status != JobStatus.COMPLETED:
+        current_status = JobStatus.COMPLETED
+
     return JobDetailResponse(
         job_id=rec.job_id,
-        status=rec.status,
+        status=current_status,
         source_filename=rec.source_filename,
         error_message=rec.error_message,
         transcript_path=tpath,
@@ -138,4 +172,62 @@ def search_job(
         query=query,
         results=results,
         total_matches=len(results)
+    )
+
+
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="Multimodal RAG Chat: Ask questions about lectures",
+)
+async def chat_rag(
+    request: ChatRequest,
+    embeddings: EmbeddingDep,
+    ollama: OllamaDep,
+) -> ChatResponse:
+    t0 = time.perf_counter()
+    
+    # 1. Retrieve relevant chunks
+    logger.info("Chat: Retrieving context for query: '%s'", request.question)
+    retrieved_chunks = embeddings.search_similar_chunks(
+        query=request.question,
+        job_id=request.job_id,
+        limit=request.top_k
+    )
+    
+    if not retrieved_chunks:
+        return ChatResponse(
+            answer="I could not find any relevant information in the lecture context to answer your question.",
+            sources=[]
+        )
+
+    # 2. Build RAG prompt
+    prompt = build_rag_prompt(request.question, retrieved_chunks)
+    
+    # 3. Generate response via Ollama
+    try:
+        answer = await ollama.generate_response(prompt)
+    except Exception as e:
+        logger.error("Chat: LLM generation failed: %s", e)
+        raise HTTPException(status_code=503, detail="Local LLM service is currently unavailable.")
+
+    # 4. Format sources
+    sources = [
+        RetrievedSource(
+            chunk_id=c.chunk_id,
+            score=c.score,
+            spoken_text=c.spoken_text,
+            slide_text=c.slide_text,
+            screenshots=c.screenshots,
+            start_time=c.start_time,
+            end_time=c.end_time
+        )
+        for c in retrieved_chunks
+    ]
+
+    logger.info("Chat: Generated RAG response in %.2fs", time.perf_counter() - t0)
+    
+    return ChatResponse(
+        answer=answer,
+        sources=sources
     )

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DAMAK AI Capture</title>
+  <style>
+    body { width: 300px; padding: 15px; font-family: sans-serif; }
+    .status { margin-bottom: 10px; font-weight: bold; }
+    .btn { width: 100%; padding: 10px; cursor: pointer; border: none; border-radius: 4px; color: white; font-weight: bold; }
+    .btn-start { background-color: #4CAF50; }
+    .btn-stop { background-color: #f44336; }
+    .input-group { margin-bottom: 15px; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h3>DAMAK AI Capture</h3>
+  <div id="setup-view">
+    <div class="input-group">
+      <label for="title">Session Title</label>
+      <input type="text" id="title" placeholder="e.g. DBMS Lecture 1">
+    </div>
+    <button id="start-btn" class="btn btn-start">Start Capture</button>
+  </div>
+  <div id="active-view" class="hidden">
+    <div class="status">Session Active...</div>
+    <div id="session-info" style="font-size: 0.9em; color: #666; margin-bottom: 15px;"></div>
+    <button id="stop-btn" class="btn btn-stop">Stop & Process</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

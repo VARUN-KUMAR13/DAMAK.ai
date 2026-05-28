@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     storage_ocr: Optional[Path] = Field(default=None, alias="STORAGE_OCR")
     storage_chunks: Optional[Path] = Field(default=None, alias="STORAGE_CHUNKS")
     storage_embeddings: Optional[Path] = Field(default=None, alias="STORAGE_EMBEDDINGS")
+    storage_live: Optional[Path] = Field(default=None, alias="STORAGE_LIVE")
 
     whisper_model: str = Field(default="base", alias="WHISPER_MODEL")
     whisper_device: str = Field(default="cpu", alias="WHISPER_DEVICE")
@@ -52,6 +53,10 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
     embedding_device: str = Field(default="cpu", alias="EMBEDDING_DEVICE")
     chroma_db_dir: Optional[Path] = Field(default=None, alias="CHROMA_DB_DIR")
+
+    # Phase 6: Ollama & RAG
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="phi3", alias="OLLAMA_MODEL")
 
     ffmpeg_path: str = Field(default="ffmpeg", alias="FFMPEG_PATH")
     screenshot_interval_sec: float = Field(default=2.0, alias="SCREENSHOT_INTERVAL_SEC")
@@ -80,6 +85,8 @@ class Settings(BaseSettings):
             self.storage_chunks = root / "storage" / "chunks"
         if self.storage_embeddings is None:
             self.storage_embeddings = root / "storage" / "embeddings"
+        if self.storage_live is None:
+            self.storage_live = root / "storage" / "live"
         if self.chroma_db_dir is None:
             self.chroma_db_dir = self.storage_embeddings / "chroma_db"
         return self

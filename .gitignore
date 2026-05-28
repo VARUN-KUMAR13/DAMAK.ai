@@ -1,9 +1,38 @@
-venv/
-.venv/
+# Python
 __pycache__/
 *.pyc
-storage/
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+venv311/
+.venv/
+
+# Environment files
 .env
+
+# Node
+node_modules/
+.next/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Model caches
+.paddleocr/
 .paddlex/
-backend/.venv/
-backend/venv/
+huggingface/
+
+# Storage outputs
+storage/
+
+# ChromaDB
+chroma_db/
+
+# OS files
+.DS_Store
+Thumbs.db

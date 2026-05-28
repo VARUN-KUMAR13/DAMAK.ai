@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+# Patch sqlite3 for ChromaDB on Windows Python 3.9
+import sys
+try:
+    import pysqlite3
+    sys.modules["sqlite3"] = pysqlite3
+except ImportError:
+    pass
+
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional, get_args
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic.json_schema import CoreSchemaOrFieldType, GenerateJsonSchema
 
 from app.api.v1.router import router as v1_router
@@ -17,8 +26,13 @@ from app.services.media.screenshot_extract import ScreenshotExtractionService
 from app.services.ocr.ocr_service import OCRService
 from app.services.pipeline.chunk_service import ChunkService
 from app.services.embeddings.embedding_service import EmbeddingService
+from app.services.llm.ollama_service import OllamaService
+from app.services.live.live_session_service import LiveSessionService
+from app.services.intelligence.notes_service import NotesService
+from app.services.intelligence.flashcard_service import FlashcardService
 from app.services.storage.job_store import JobStore
 from app.services.transcription.whisper_service import WhisperTranscriptionService
+
 
 
 def _flatten_core_schema_keys(item: object) -> list[str]:
@@ -67,6 +81,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         ocr_service = OCRService(resolved)
         chunk_service = ChunkService(resolved)
         embedding_service = EmbeddingService(resolved)
+        ollama_service = OllamaService(resolved)
+        live_service = LiveSessionService(resolved, job_store)
+        notes_service = NotesService(resolved, job_store, ollama_service)
+        flashcard_service = FlashcardService(resolved, job_store, ollama_service)
         pipeline = TranscriptionPipeline(
             resolved,
             job_store,
@@ -82,10 +100,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         app.state.ocr_service = ocr_service
         app.state.chunk_service = chunk_service
         app.state.embedding_service = embedding_service
+        app.state.ollama_service = ollama_service
+        app.state.live_service = live_service
+        app.state.notes_service = notes_service
+        app.state.flashcard_service = flashcard_service
         app.state.pipeline = pipeline
         yield
 
     app = FastAPI(title=resolved.app_name, lifespan=lifespan)
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"], # In production, replace with specific origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(v1_router, prefix="/api/v1")
 
     @app.get("/health", tags=["health"])

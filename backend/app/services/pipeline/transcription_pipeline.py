@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from uuid import UUID
@@ -54,64 +55,86 @@ class TranscriptionPipeline:
         logger.info("Pipeline started for job %s", job_id)
         self._job_store.update_status(job_id, JobStatus.PROCESSING)
         try:
-            t_shot = time.perf_counter()
-            screenshots = self._screenshot_service.extract_sync(record.video_path, job_id=job_id)
-            logger.info(
-                "Job %s screenshots extracted (%d files) in %.2fs",
-                job_id,
-                len(screenshots),
-                time.perf_counter() - t_shot,
-            )
+            # 1. Screenshots (Skip if already provided by live capture)
+            if record.screenshots_metadata_path and record.screenshots_metadata_path.exists():
+                logger.info("Job %s: Using existing screenshots from live capture", job_id)
+                # Load existing metadata
+                with open(record.screenshots_metadata_path, "r", encoding="utf-8") as f:
+                    screenshots = json.load(f)
+            else:
+                if not record.video_path:
+                    raise ScreenshotExtractionError("No video path or pre-extracted screenshots found.")
 
+                t_shot = time.perf_counter()
+                screenshots = self._screenshot_service.extract_sync(record.video_path, job_id=job_id)
+                logger.info(
+                    "Job %s screenshots extracted (%d files) in %.2fs",
+                    job_id,
+                    len(screenshots),
+                    time.perf_counter() - t_shot,
+                )
+
+            logger.info("Job %s: Starting OCR processing on %d screenshots...", job_id, len(screenshots))
             t_ocr = time.perf_counter()
             ocr_results = self._ocr_service.run_ocr(job_id, screenshots)
             logger.info(
-                "Job %s OCR processing completed in %.2fs",
+                "Job %s: OCR processing completed (found text in %d slides) in %.2fs",
                 job_id,
+                len(ocr_results),
                 time.perf_counter() - t_ocr,
             )
 
-            t_audio = time.perf_counter()
-            extract_audio_wav(
-                record.video_path,
-                record.audio_path,
-                ffmpeg_executable=self._settings.ffmpeg_path,
-            )
-            logger.info(
-                "Job %s audio extraction completed in %.2fs",
-                job_id,
-                time.perf_counter() - t_audio,
-            )
+            # 2. Audio (Skip extraction if already provided by live capture)
+            if not record.audio_path or not record.audio_path.exists():
+                if not record.video_path:
+                    raise AudioExtractionError("No video path or pre-extracted audio found.")
 
+                logger.info("Job %s: Starting Whisper transcription...", job_id)
+                t_audio = time.perf_counter()
+                extract_audio_wav(
+                    record.video_path,
+                    record.audio_path,
+                    ffmpeg_executable=self._settings.ffmpeg_path,
+                )
+                logger.info(
+                    "Job %s: Audio extraction completed in %.2fs",
+                    job_id,
+                    time.perf_counter() - t_audio,
+                )
+            else:
+                logger.info("Job %s: Using existing audio from live capture", job_id)
+
+            logger.info("Job %s: Starting Whisper transcription on audio file...", job_id)
             t_transcribe = time.perf_counter()
-            payload = self._whisper.transcribe(
-                record.audio_path,
-                job_id=job_id,
-                source_filename=record.source_filename,
-            )
+            payload = self._whisper.transcribe_sync(record.audio_path, job_id=job_id)
             logger.info(
-                "Job %s transcription completed in %.2fs",
+                "Job %s: Whisper transcription completed (%d segments) in %.2fs",
                 job_id,
+                len(payload.segments),
                 time.perf_counter() - t_transcribe,
             )
 
+            logger.info("Job %s: Starting multimodal chunking...", job_id)
             t_chunk = time.perf_counter()
             chunks = self._chunk_service.generate_chunks(job_id, payload, ocr_results)
             logger.info(
-                "Job %s multimodal chunking completed in %.2fs",
+                "Job %s: Multimodal chunking completed (generated %d chunks) in %.2fs",
                 job_id,
+                len(chunks),
                 time.perf_counter() - t_chunk,
             )
 
+            logger.info("Job %s: Starting embedding indexing...", job_id)
             t_embed = time.perf_counter()
             self._embedding_service.index_chunks(job_id, chunks)
             logger.info(
-                "Job %s embedding indexing completed in %.2fs",
+                "Job %s: Embedding indexing completed in %.2fs",
                 job_id,
                 time.perf_counter() - t_embed,
             )
 
             self._job_store.save_transcript(job_id, payload)
+            self._job_store.update_status(job_id, JobStatus.COMPLETED)
             logger.info("Pipeline finished for job %s in %.2fs", job_id, time.perf_counter() - t0)
         except ScreenshotExtractionError as e:
             logger.exception("Screenshot extraction failed for job %s", job_id)
