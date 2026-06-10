@@ -71,6 +71,12 @@ class ScreenshotExtractionService:
         out_dir.mkdir(parents=True, exist_ok=True)
         metadata_path = out_dir / "metadata.json"
 
+        # Intelligence: Skip screenshot extraction for audio files to prevent OpenCV hangs
+        if video_path.suffix.lower() in ['.wav', '.mp3', '.m4a', '.flac', '.aac', '.ogg']:
+            logger.info("Job %s: Audio file detected, skipping screenshot extraction", job_id)
+            metadata_path.write_text("[]", encoding="utf-8")
+            return []
+
         capture = cv2.VideoCapture(str(video_path.resolve()))
         if not capture.isOpened():
             raise ScreenshotExtractionError(f"Could not open video file: {video_path}")

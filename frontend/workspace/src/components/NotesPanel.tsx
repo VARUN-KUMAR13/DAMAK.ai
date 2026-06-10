@@ -7,25 +7,27 @@ import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 
 export default function NotesPanel() {
-  const { currentSessionId, currentNotes, setNotes } = useStore();
+  const { currentSessionId, currentNotes, currentNotesKeyConcepts, currentNotesCitations, setNotes, setHighlightedTimestamp } = useStore();
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("standard");
+  const [generationDuration, setGenerationDuration] = useState<number | null>(null);
 
   const generateNotes = async () => {
     if (!currentSessionId) return;
     setLoading(true);
+    setGenerationDuration(null);
+    const t0 = Date.now();
     try {
       const res = await api.post("/api/v1/intelligence/notes/generate", {
         session_id: currentSessionId,
         mode: mode
       });
-      setNotes(res.data.content);
+      setNotes(res.data.content, res.data.key_concepts, res.data.citations);
+      setGenerationDuration((Date.now() - t0) / 1000);
     } catch (err: any) {
-      if (err.response?.status === 404) {
-        alert("Session processing is not complete yet. Please wait a moment.");
-      } else {
-        console.error("Notes generation failed", err);
-      }
+      const errorDetail = err.response?.data?.detail || "An unexpected error occurred during notes generation.";
+      console.error("Notes generation failed:", err);
+      alert(`Notes generation failed: ${errorDetail}`);
     } finally {
       setLoading(false);
     }
@@ -105,8 +107,58 @@ export default function NotesPanel() {
       )}
 
       {currentNotes && (
-        <div className="prose prose-invert prose-zinc max-w-none bg-zinc-950/50 border border-zinc-800 p-8 rounded-3xl shadow-2xl">
-           <ReactMarkdown>{currentNotes}</ReactMarkdown>
+        <div className="flex gap-6">
+          <div className="flex-1 prose prose-invert prose-zinc max-w-none bg-zinc-950/50 border border-zinc-800 p-8 rounded-3xl shadow-2xl">
+            <ReactMarkdown>{currentNotes}</ReactMarkdown>
+            {generationDuration !== null && (
+               <div className="mt-8 text-xs text-zinc-500 italic text-right border-t border-zinc-800/50 pt-4">
+                  Generated in {generationDuration.toFixed(1)}s
+               </div>
+            )}
+          </div>
+          
+          <div className="w-64 flex flex-col gap-4">
+            {currentNotesKeyConcepts && currentNotesKeyConcepts.length > 0 && (
+              <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
+                <h4 className="font-semibold text-zinc-300 mb-3 text-sm flex items-center gap-2">
+                  <Sparkles size={14} className="text-purple-400" />
+                  Key Concepts
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {currentNotesKeyConcepts.map((concept, idx) => (
+                    <span key={idx} className="bg-zinc-800 text-zinc-300 text-xs px-2 py-1 rounded-md">
+                      {concept}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {currentNotesCitations && currentNotesCitations.length > 0 && (
+              <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
+                <h4 className="font-semibold text-zinc-300 mb-3 text-sm flex items-center gap-2">
+                  <Layers size={14} className="text-blue-400" />
+                  Lecture Citations
+                </h4>
+                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+                  {currentNotesCitations.map((cit, idx) => (
+                    <button 
+                      key={idx}
+                      onClick={() => setHighlightedTimestamp(cit.timestamp)}
+                      className="text-left p-2 hover:bg-zinc-800 rounded-lg transition-colors border border-transparent hover:border-zinc-700 group"
+                    >
+                      <div className="text-xs font-mono text-blue-400 mb-1 group-hover:text-blue-300 transition-colors">
+                        [{Math.floor(cit.timestamp / 60)}:{(cit.timestamp % 60).toString().padStart(2, '0').split('.')[0]}]
+                      </div>
+                      <div className="text-xs text-zinc-400 line-clamp-2">
+                        {cit.text}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

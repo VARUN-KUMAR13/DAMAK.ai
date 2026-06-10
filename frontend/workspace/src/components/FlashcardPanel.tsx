@@ -6,11 +6,12 @@ import { Brain, RefreshCw, ChevronRight, ChevronLeft, CheckCircle2, Circle } fro
 import { api } from "@/lib/api";
 
 export default function FlashcardPanel() {
-  const { currentSessionId } = useStore();
+  const { currentSessionId, setHighlightedTimestamp } = useStore();
   const [flashcards, setFlashcards] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [flashcardType, setFlashcardType] = useState("qa");
 
   const generateFlashcards = async () => {
     if (!currentSessionId) return;
@@ -19,7 +20,7 @@ export default function FlashcardPanel() {
       const res = await api.post("/api/v1/intelligence/flashcards/generate", {
         session_id: currentSessionId,
         count: 5,
-        type: "qa"
+        type: flashcardType
       });
       setFlashcards(res.data.flashcards);
       setCurrentIndex(0);
@@ -62,14 +63,27 @@ export default function FlashcardPanel() {
            </div>
         </div>
         
-        <button 
-          onClick={generateFlashcards}
-          disabled={loading || !currentSessionId}
-          className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-1.5 rounded-lg text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
-        >
-          {loading ? <RefreshCw size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          <span>{flashcards.length > 0 ? 'Regenerate' : 'Generate Flashcards'}</span>
-        </button>
+        <div className="flex items-center gap-4">
+          <select 
+            value={flashcardType} 
+            onChange={(e) => setFlashcardType(e.target.value)}
+            disabled={loading || !currentSessionId}
+            className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-zinc-600 disabled:opacity-50"
+          >
+            <option value="qa">Q&A</option>
+            <option value="mcq">Multiple Choice</option>
+            <option value="revision">Revision</option>
+          </select>
+          
+          <button 
+            onClick={generateFlashcards}
+            disabled={loading || !currentSessionId}
+            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-1.5 rounded-lg text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          >
+            {loading ? <RefreshCw size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            <span>{flashcards.length > 0 ? 'Regenerate' : 'Generate'}</span>
+          </button>
+        </div>
       </div>
 
       {flashcards.length > 0 ? (
@@ -80,11 +94,34 @@ export default function FlashcardPanel() {
 
           <div 
             onClick={() => setShowAnswer(!showAnswer)}
-            className={`aspect-[4/3] w-full rounded-3xl p-12 flex items-center justify-center text-center text-2xl font-medium cursor-pointer transition-all duration-500 preserve-3d relative ${showAnswer ? 'bg-white text-black' : 'bg-zinc-900 border-2 border-zinc-800 text-white hover:border-zinc-600'}`}
+            className={`aspect-[4/3] w-full rounded-3xl p-12 flex flex-col items-center justify-center text-center text-xl cursor-pointer transition-all duration-500 preserve-3d relative ${showAnswer ? 'bg-white text-black' : 'bg-zinc-900 border-2 border-zinc-800 text-white hover:border-zinc-600'}`}
           >
-            <div className="leading-relaxed">
+            <div className="leading-relaxed font-medium mb-8">
               {showAnswer ? flashcards[currentIndex].answer : flashcards[currentIndex].question}
             </div>
+
+            {!showAnswer && flashcards[currentIndex].options && flashcards[currentIndex].options.length > 0 && (
+              <div className="w-full max-w-sm space-y-2 mt-4 text-left">
+                {flashcards[currentIndex].options.map((opt: string, idx: number) => (
+                  <div key={idx} className="bg-zinc-800 border border-zinc-700 px-4 py-3 rounded-xl text-sm font-normal">
+                    {opt}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showAnswer && flashcards[currentIndex].timestamp !== undefined && flashcards[currentIndex].timestamp !== null && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHighlightedTimestamp(flashcards[currentIndex].timestamp);
+                }}
+                className="mt-6 px-4 py-2 bg-zinc-100 border border-zinc-300 rounded-lg text-sm font-semibold hover:bg-zinc-200 transition-colors flex items-center gap-2 text-black"
+              >
+                Jump to Source [{Math.floor(flashcards[currentIndex].timestamp / 60)}:{(flashcards[currentIndex].timestamp % 60).toFixed(0).padStart(2, '0')}]
+              </button>
+            )}
+
             <div className="absolute bottom-6 text-xs opacity-50 font-normal">
               Click to {showAnswer ? 'see question' : 'flip and see answer'}
             </div>

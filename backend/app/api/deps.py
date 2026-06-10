@@ -2,7 +2,7 @@
 
 from typing_extensions import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, WebSocket
 
 from app.core.config import Settings, get_settings
 from app.services.pipeline.transcription_pipeline import TranscriptionPipeline
@@ -12,6 +12,8 @@ from app.services.live.live_session_service import LiveSessionService
 from app.services.intelligence.notes_service import NotesService
 from app.services.intelligence.flashcard_service import FlashcardService
 from app.services.storage.job_store import JobStore
+from app.services.live.meeting_store import MeetingStore
+from app.services.live.meeting_service import MeetingService
 
 
 def _get_job_store(request: Request) -> JobStore:
@@ -54,3 +56,28 @@ OllamaDep = Annotated[OllamaService, Depends(_get_ollama_service)]
 LiveSessionDep = Annotated[LiveSessionService, Depends(_get_live_service)]
 NotesDep = Annotated[NotesService, Depends(_get_notes_service)]
 FlashcardDep = Annotated[FlashcardService, Depends(_get_flashcard_service)]
+
+def _get_meeting_store(request: Request) -> MeetingStore:
+    return request.app.state.meeting_store
+
+MeetingStoreDep = Annotated[MeetingStore, Depends(_get_meeting_store)]
+
+def _get_meeting_service(
+    meeting_store: MeetingStoreDep,
+    job_store: JobStoreDep,
+    embeddings: EmbeddingDep,
+    notes: NotesDep
+) -> MeetingService:
+    return MeetingService(meeting_store=meeting_store, job_store=job_store, embeddings=embeddings, notes=notes)
+
+MeetingServiceDep = Annotated[MeetingService, Depends(_get_meeting_service)]
+
+def _get_meeting_service_ws(websocket: WebSocket) -> MeetingService:
+    return MeetingService(
+        meeting_store=websocket.app.state.meeting_store,
+        job_store=websocket.app.state.job_store,
+        embeddings=websocket.app.state.embedding_service,
+        notes=websocket.app.state.notes_service
+    )
+
+MeetingServiceWSDep = Annotated[MeetingService, Depends(_get_meeting_service_ws)]

@@ -22,6 +22,7 @@ class JobCreateResponse(BaseModel):
     job_id: UUID
     status: JobStatus = JobStatus.PENDING
     message: str = Field(default="Upload accepted; processing started.")
+    created_at: Optional[str] = None
 
 
 class JobDetailResponse(BaseModel):
@@ -29,6 +30,8 @@ class JobDetailResponse(BaseModel):
     status: JobStatus
     source_filename: Optional[str] = None
     error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    progress_stage: Optional[str] = None
     transcript_path: Optional[str] = Field(
         default=None,
         description="Absolute path to transcript JSON on disk (Phase 1).",

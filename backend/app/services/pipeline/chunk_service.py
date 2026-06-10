@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from uuid import UUID
 from typing import Any, List, Optional
@@ -89,6 +90,12 @@ class ChunkService:
                 # Prepare combined text for RAG/LLM
                 combined_content = f"Slide Content:\n{combined_slide_text}\n\nSpoken Content:\n{spoken_text}" if combined_slide_text else spoken_text
 
+                # Phase 9C: Stage 1 Fast-Path Extraction (Basic Keyword Heuristics)
+                # Extract capitalized words (potential entities) and terms longer than 5 chars
+                words = re.findall(r'\b[A-Z][a-zA-Z0-9-]+\b', combined_content)
+                long_words = [w for w in re.findall(r'\b[a-zA-Z]{6,}\b', combined_content) if w.lower() not in {"because", "through", "should", "without"}]
+                keywords = list(set(words + long_words))[:10] # Top 10 simple keywords
+
                 chunks.append(MultimodalChunk(
                     chunk_id=f"chunk_{chunk_idx:03d}",
                     start_time=round(current_start, 2),
@@ -96,7 +103,8 @@ class ChunkService:
                     slide_text=combined_slide_text,
                     spoken_text=spoken_text,
                     combined_text=combined_content,
-                    screenshots=list(dict.fromkeys(screenshots)) # deduplicate
+                    screenshots=list(dict.fromkeys(screenshots)), # deduplicate
+                    keywords=keywords
                 ))
                 
                 # Reset for next chunk

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>DAMAK AI Live Capture</title>
+  <style>
+    body {
+      width: 300px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .logo {
+      width: 32px;
+      height: 32px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #000000;
+      font-weight: bold;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0;
+    }
+    .status-box {
+      background-color: #1e1e1e;
+      border: 1px solid #333333;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 20px;
+    }
+    .status-label {
+      font-size: 12px;
+      color: #888888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .status-value {
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #555555;
+    }
+    .dot.active {
+      background-color: #f97316; /* orange-500 */
+      box-shadow: 0 0 8px #f97316;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 12px;
+    }
+    .btn-start {
+      background-color: #ffffff;
+      color: #000000;
+    }
+    .btn-start:hover {
+      background-color: #e5e5e5;
+    }
+    .btn-stop {
+      background-color: #dc2626;
+      color: #ffffff;
+    }
+    .btn-stop:hover {
+      background-color: #b91c1c;
+    }
+    .btn-dashboard {
+      background-color: transparent;
+      color: #888888;
+      border: 1px solid #333333;
+    }
+    .btn-dashboard:hover {
+      background-color: #1e1e1e;
+      color: #ffffff;
+    }
+    .error-msg {
+      color: #ef4444;
+      font-size: 12px;
+      margin-top: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">D</div>
+    <h1>DAMAK AI</h1>
+  </div>
+  
+  <div class="status-box">
+    <div class="status-label">Capture Status</div>
+    <div class="status-value">
+      <div id="statusDot" class="dot"></div>
+      <span id="statusText">Idle</span>
+    </div>
+  </div>
+
+  <button id="btnToggle" class="btn-start">Start Capture</button>
+  <button id="btnSimulate" class="btn-dashboard" style="color: #f97316; border-color: #f97316; display: none;">Send Test Text</button>
+  <button id="btnDashboard" class="btn-dashboard">Open Dashboard</button>
+
+  <div id="errorMsg" class="error-msg"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

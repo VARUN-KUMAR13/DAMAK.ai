@@ -43,6 +43,8 @@ class FlashcardRequest(BaseModel):
 
 
 class Flashcard(BaseModel):
+    id: str
+    type: FlashcardType
     question: str
     answer: str
     options: Optional[List[str]] = None

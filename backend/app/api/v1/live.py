@@ -47,9 +47,10 @@ async def upload_screenshot(
 ) -> dict:
     data = await file.read()
     ok = await live_service.add_screenshot(session_id, data, timestamp)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Failed to process screenshot or session not active.")
-    return {"status": "ok"}
+    # We don't raise 400 if add_screenshot returns False, because it might just be a duplicate frame.
+    # However, if the session doesn't exist at all, we should probably return 404, but LiveSessionService handles that internally by returning False.
+    # We will just return 200 OK regardless to prevent console spam for skipped frames.
+    return {"status": "ok", "saved": ok}
 
 
 @router.post("/{session_id}/upload-audio", summary="Upload an audio chunk to an active session")
@@ -61,7 +62,8 @@ async def upload_audio(
     data = await file.read()
     ok = await live_service.add_audio_chunk(session_id, data)
     if not ok:
-        raise HTTPException(status_code=400, detail="Failed to process audio chunk or session not active.")
+        # If audio chunk fails, it means session is definitely inactive/missing
+        raise HTTPException(status_code=404, detail="Live session not found or inactive.")
     return {"status": "ok"}
 
 

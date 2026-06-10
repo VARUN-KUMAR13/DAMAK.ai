@@ -8,6 +8,11 @@ __pycache__/
 venv/
 venv311/
 .venv/
+.venv_py39_backup/
+sqlite_new/
+*.zip
+*.wav
+
 
 # Environment files
 .env

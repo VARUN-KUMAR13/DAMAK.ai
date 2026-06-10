@@ -5,7 +5,7 @@ import { useStore } from "@/store/useStore";
 import { MessageSquareText } from "lucide-react";
 
 export default function TranscriptPanel() {
-  const { currentTranscript, highlightedTimestamp } = useStore();
+  const { currentTranscript, highlightedTimestamp, currentLiveSessionId, currentLiveMeetingId } = useStore();
   const transcriptRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -21,6 +21,8 @@ export default function TranscriptPanel() {
       }
     }
   }, [highlightedTimestamp, currentTranscript]);
+
+  const isLive = currentLiveSessionId || currentLiveMeetingId;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -46,6 +48,12 @@ export default function TranscriptPanel() {
               <span className="text-zinc-300 leading-relaxed">{seg.text}</span>
             </div>
           ))
+        ) : isLive ? (
+          <div className="flex flex-col items-center justify-center text-center text-zinc-500 py-10 space-y-3">
+             <div className="w-8 h-8 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+             <p className="font-medium text-orange-400">Live Session Active</p>
+             <p className="text-xs">Transcribing in background...</p>
+          </div>
         ) : (
           <div className="text-center text-zinc-600 italic py-10">Select a session to view transcript</div>
         )}

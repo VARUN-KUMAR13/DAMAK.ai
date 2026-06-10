@@ -35,9 +35,13 @@ class Settings(BaseSettings):
     storage_chunks: Optional[Path] = Field(default=None, alias="STORAGE_CHUNKS")
     storage_embeddings: Optional[Path] = Field(default=None, alias="STORAGE_EMBEDDINGS")
     storage_live: Optional[Path] = Field(default=None, alias="STORAGE_LIVE")
+    storage_study: Optional[Path] = Field(default=None, alias="STORAGE_STUDY")
+    storage_graph: Optional[Path] = Field(default=None, alias="STORAGE_GRAPH")
 
     whisper_model: str = Field(default="base", alias="WHISPER_MODEL")
     whisper_device: str = Field(default="cpu", alias="WHISPER_DEVICE")
+
+    reranker_model: str = Field(default="mini-lm", alias="RERANKER_MODEL")
     whisper_compute_type: str = Field(default="int8", alias="WHISPER_COMPUTE_TYPE")
 
     ocr_lang: str = Field(default="en", alias="OCR_LANG")
@@ -60,7 +64,8 @@ class Settings(BaseSettings):
 
     ffmpeg_path: str = Field(default="ffmpeg", alias="FFMPEG_PATH")
     screenshot_interval_sec: float = Field(default=2.0, alias="SCREENSHOT_INTERVAL_SEC")
-    screenshot_ssim_threshold: float = Field(default=0.96, alias="SCREENSHOT_SSIM_THRESHOLD")
+    screenshot_ssim_threshold: float = Field(default=0.92, alias="SCREENSHOT_SSIM_THRESHOLD")
+    screenshot_max_ocr_frames: int = Field(default=50, alias="SCREENSHOT_MAX_OCR_FRAMES")
     screenshot_min_change_ratio: float = Field(
         default=0.02, alias="SCREENSHOT_MIN_CHANGE_RATIO"
     )
@@ -87,6 +92,10 @@ class Settings(BaseSettings):
             self.storage_embeddings = root / "storage" / "embeddings"
         if self.storage_live is None:
             self.storage_live = root / "storage" / "live"
+        if self.storage_study is None:
+            self.storage_study = root / "storage" / "study"
+        if self.storage_graph is None:
+            self.storage_graph = root / "storage" / "graph"
         if self.chroma_db_dir is None:
             self.chroma_db_dir = self.storage_embeddings / "chroma_db"
         return self

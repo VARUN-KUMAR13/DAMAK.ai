@@ -25,11 +25,10 @@ async def generate_notes(
 ) -> NotesResponse:
     try:
         return await notes_service.generate_notes(request.session_id, request.mode)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error("Notes generation error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to generate notes.")
+        error_msg = str(e) if isinstance(e, RuntimeError) else "Failed to generate notes."
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.post(
@@ -47,8 +46,7 @@ async def generate_flashcards(
             request.count, 
             request.type
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error("Flashcard generation error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to generate flashcards.")
+        error_msg = str(e) if isinstance(e, RuntimeError) else "Failed to generate flashcards."
+        raise HTTPException(status_code=500, detail=error_msg)

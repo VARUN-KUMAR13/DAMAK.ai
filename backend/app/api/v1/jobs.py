@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
 from app.api.deps import EmbeddingDep, JobStoreDep, OllamaDep, PipelineDep, SettingsDep
 from app.schemas.chat import ChatRequest, ChatResponse, RetrievedSource
+from app.services.llm.context_manager import ContextManager
 from app.schemas.job import JobCreateResponse, JobDetailResponse, JobStatus
 from app.schemas.search import SearchRequest, SearchResponse
 from app.schemas.transcript import TranscriptPayload
@@ -72,6 +73,8 @@ def list_jobs(job_store: JobStoreDep) -> list[JobDetailResponse]:
                 status=rec.status,
                 source_filename=rec.source_filename,
                 error_message=rec.error_message,
+                created_at=rec.created_at,
+                progress_stage=rec.progress_stage,
             )
         )
     return results
@@ -109,6 +112,8 @@ def get_job(job_id: UUID, job_store: JobStoreDep) -> JobDetailResponse:
         status=current_status,
         source_filename=rec.source_filename,
         error_message=rec.error_message,
+        created_at=rec.created_at,
+        progress_stage=rec.progress_stage,
         transcript_path=tpath,
         transcript=transcript,
         ocr_results=ocr_results,
@@ -140,7 +145,7 @@ def search_global(
     request: SearchRequest,
     embeddings: EmbeddingDep,
 ) -> SearchResponse:
-    results = embeddings.search_similar_chunks(
+    results = embeddings.search_hybrid(
         query=request.query,
         job_id=request.job_id,
         limit=request.limit
@@ -163,7 +168,7 @@ def search_job(
     embeddings: EmbeddingDep,
     limit: int = 5
 ) -> SearchResponse:
-    results = embeddings.search_similar_chunks(
+    results = embeddings.search_hybrid(
         query=query,
         job_id=job_id,
         limit=limit
@@ -189,7 +194,7 @@ async def chat_rag(
     
     # 1. Retrieve relevant chunks
     logger.info("Chat: Retrieving context for query: '%s'", request.question)
-    retrieved_chunks = embeddings.search_similar_chunks(
+    retrieved_chunks = embeddings.search_hybrid(
         query=request.question,
         job_id=request.job_id,
         limit=request.top_k
@@ -226,6 +231,74 @@ async def chat_rag(
     ]
 
     logger.info("Chat: Generated RAG response in %.2fs", time.perf_counter() - t0)
+    
+    return ChatResponse(
+        answer=answer,
+        sources=sources
+    )
+
+
+@router.post(
+    "/chat/global",
+    response_model=ChatResponse,
+    summary="Global Multimodal RAG Chat: Ask questions across ALL lectures",
+)
+async def chat_global_rag(
+    request: ChatRequest,
+    embeddings: EmbeddingDep,
+    ollama: OllamaDep,
+) -> ChatResponse:
+    t0 = time.perf_counter()
+    
+    # 1. Retrieve relevant chunks globally (job_id = None)
+    logger.info("Global Chat: Retrieving global context for query: '%s'", request.question)
+    retrieved_chunks = embeddings.search_hybrid(
+        query=request.question,
+        job_id=None,
+        limit=max(10, request.top_k * 2)  # Retrieve more context globally
+    )
+    
+    if not retrieved_chunks:
+        return ChatResponse(
+            answer="I could not find any relevant information in your knowledge base to answer your question.",
+            sources=[]
+        )
+
+    # 2. Build RAG prompt with multi-source instructions using ContextManager
+    context_manager = ContextManager()
+    context_text = context_manager.build_chat_context(request.question, retrieved_chunks, max_context_tokens=4000)
+    
+    prompt = (
+        f"You are DAMAK AI, an intelligent personal knowledge assistant.\n"
+        f"Synthesize an answer using ONLY the provided contexts from multiple lectures.\n"
+        f"Explicitly mention which lecture or context the information comes from if combining ideas.\n\n"
+        f"Contexts:\n{context_text}\n\n"
+        f"Question: {request.question}\n\n"
+        f"Answer:"
+    )
+    
+    # 3. Generate response via Ollama
+    try:
+        answer = await ollama.generate_response(prompt)
+    except Exception as e:
+        logger.error("Global Chat: LLM generation failed: %s", e)
+        raise HTTPException(status_code=503, detail="Local LLM service is currently unavailable.")
+
+    # 4. Format sources
+    sources = [
+        RetrievedSource(
+            chunk_id=c.chunk_id,
+            score=c.score,
+            spoken_text=c.spoken_text,
+            slide_text=c.slide_text,
+            screenshots=c.screenshots,
+            start_time=c.start_time,
+            end_time=c.end_time
+        )
+        for c in retrieved_chunks
+    ]
+
+    logger.info("Global Chat: Generated RAG response in %.2fs", time.perf_counter() - t0)
     
     return ChatResponse(
         answer=answer,

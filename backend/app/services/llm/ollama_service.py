@@ -25,7 +25,7 @@ class OllamaService:
         self._base_url = self._settings.ollama_base_url
         self._model = self._settings.ollama_model
 
-    async def generate_response(self, prompt: str) -> str:
+    async def generate_response(self, prompt: str, json_format: bool = False) -> str:
         """
         Send prompt to Ollama and return generated text.
         """
@@ -35,13 +35,15 @@ class OllamaService:
             "prompt": prompt,
             "stream": False
         }
+        if json_format:
+            payload["format"] = "json"
         logger.info(f"Ollama URL: {url}")
         logger.info(f"Ollama model: {self._model}")
 
         logger.info("Sending RAG prompt to Ollama (model=%s)", self._model)
         
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 response = await client.post(url, json=payload)
                 
                 logger.info(f"Ollama status code: {response.status_code}")

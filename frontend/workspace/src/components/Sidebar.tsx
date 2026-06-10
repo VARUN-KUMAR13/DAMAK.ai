@@ -1,19 +1,25 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { useStore } from "@/store/useStore";
-import { BookOpen, History, Plus, Loader2 } from "lucide-react";
+import { BookOpen, History, Plus, Loader2, Upload, Search, BrainCircuit, Network } from "lucide-react";
 import { api } from "@/lib/api";
 
 export default function Sidebar() {
   const { 
     currentSessionId, setCurrentSession, 
     currentLiveSessionId, setCurrentLiveSession,
+    currentLiveMeetingId, setCurrentLiveMeeting,
+    uploadingFile, setUploadingFile,
     sessions, setSessions, addSession,
-    liveSessions, setLiveSessions, addLiveSession
+    liveSessions, setLiveSessions, addLiveSession,
+    liveMeetings, setLiveMeetings, addLiveMeeting
   } = useStore();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -21,12 +27,14 @@ export default function Sidebar() {
 
   const fetchData = async () => {
     try {
-      const [jobsRes, liveRes] = await Promise.all([
+      const [jobsRes, liveRes, meetingsRes] = await Promise.all([
         api.get("/api/v1/jobs"),
-        api.get("/api/v1/live/sessions")
+        api.get("/api/v1/live/sessions"),
+        api.get("/api/v1/meetings")
       ]);
       setSessions(jobsRes.data);
       setLiveSessions(liveRes.data);
+      setLiveMeetings(meetingsRes.data);
     } catch (err) {
       console.error("Failed to fetch sidebar data", err);
     } finally {
@@ -38,7 +46,7 @@ export default function Sidebar() {
     setCreating(true);
     try {
       const title = `Learning Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-      const res = await api.post("/api/v1/live/start", { title });
+      const res = await api.post("/api/v1/live/start", { title, platform: "Meet" });
       
       const newLiveSession = {
         session_id: res.data.session_id,
@@ -57,6 +65,53 @@ export default function Sidebar() {
     }
   };
 
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadingFile(file.name);
+    setCurrentSession(null);
+    setCurrentLiveSession(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await api.post("/api/v1/jobs", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      
+      const newJob = {
+        job_id: res.data.job_id,
+        source_filename: file.name,
+        status: res.data.status,
+      };
+
+      addSession(newJob);
+      setCurrentSession(newJob.job_id);
+    } catch (err) {
+      console.error("Failed to upload file:", err);
+      alert("Failed to upload file. Please check file size and format.");
+    } finally {
+      setUploading(false);
+      setUploadingFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'bg-green-500/20 text-green-500';
+      case 'pending': return 'bg-blue-500/20 text-blue-500';
+      case 'processing': return 'bg-yellow-500/20 text-yellow-500';
+      case 'failed': return 'bg-red-500/20 text-red-500';
+      default: return 'bg-zinc-500/20 text-zinc-500';
+    }
+  };
+
   return (
     <aside className="w-64 flex flex-col bg-zinc-950 border-r border-zinc-800 p-4">
       <div className="flex items-center gap-2 mb-8 px-2">
@@ -66,16 +121,74 @@ export default function Sidebar() {
         <h1 className="font-bold text-lg">DAMAK AI</h1>
       </div>
 
-      <button 
-        onClick={createSession}
-        disabled={creating}
-        className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 transition-colors rounded-lg p-2.5 mb-6 text-zinc-400 disabled:opacity-50"
-      >
-        {creating ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-        <span>New Session</span>
-      </button>
+      <div className="flex gap-2 mb-6">
+        <button 
+          onClick={createSession}
+          disabled={creating || uploading}
+          className="flex-1 flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 transition-colors rounded-lg p-2.5 text-zinc-400 disabled:opacity-50"
+        >
+          {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+          <span className="text-xs font-medium">New Live</span>
+        </button>
+
+        <button 
+          onClick={() => fileInputRef.current?.click()}
+          disabled={creating || uploading}
+          className="flex-1 flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 transition-colors rounded-lg p-2.5 text-zinc-400 disabled:opacity-50"
+        >
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+          <span className="text-xs font-medium">Upload</span>
+        </button>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          hidden 
+          accept="video/*,audio/*" 
+          onChange={handleUpload} 
+        />
+      </div>
+      
+      {/* Temporarily Hidden for Core Stabilization
+      <div className="mb-6">
+        <button 
+          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+          className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 transition-colors rounded-lg p-2.5 text-zinc-400"
+        >
+          <div className="flex items-center gap-2">
+            <Search size={16} />
+            <span className="text-xs font-medium text-zinc-300">Global Brain Search</span>
+          </div>
+          <div className="flex gap-1">
+            <kbd className="text-[10px] font-mono bg-zinc-950 px-1.5 py-0.5 rounded text-zinc-500">⌘</kbd>
+            <kbd className="text-[10px] font-mono bg-zinc-950 px-1.5 py-0.5 rounded text-zinc-500">K</kbd>
+          </div>
+        </button>
+      </div>
+      */}
 
       <div className="flex-1 overflow-y-auto space-y-6">
+        {/* Temporarily Hidden for Core Stabilization
+        <Link 
+          href="/study"
+          className="flex items-center gap-3 px-2 py-2 group hover:bg-zinc-900 rounded-lg transition-colors"
+        >
+          <div className="bg-zinc-800 p-1.5 rounded-md text-zinc-400 group-hover:text-blue-400 group-hover:bg-blue-500/10 transition-colors">
+            <BrainCircuit size={16} />
+          </div>
+          <span className="font-medium text-zinc-300">Study Center</span>
+        </Link>
+        
+        <Link 
+          href="/brain"
+          className="flex items-center gap-3 px-2 py-2 group hover:bg-zinc-900 rounded-lg transition-colors"
+        >
+          <div className="bg-zinc-800 p-1.5 rounded-md text-zinc-400 group-hover:text-purple-400 group-hover:bg-purple-500/10 transition-colors">
+            <Network size={16} />
+          </div>
+          <span className="font-medium text-zinc-300">Global Brain</span>
+        </Link>
+        */}
+
         {/* Active Live Sessions */}
         {liveSessions.length > 0 && (
           <div>
@@ -94,6 +207,30 @@ export default function Sidebar() {
                 >
                   <div className="font-medium truncate">{s.title}</div>
                   <div className="text-[10px] opacity-50">CAPTURE ACTIVE</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Google Meet Meetings */}
+        {liveMeetings.length > 0 && (
+          <div>
+            <div className="text-xs font-semibold text-orange-500 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
+              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+              Live Meetings (Meet)
+            </div>
+            <div className="space-y-1">
+              {liveMeetings.map((m) => (
+                <button
+                  key={m.session_id}
+                  onClick={() => setCurrentLiveMeeting(m.session_id)}
+                  className={`w-full text-left p-3 rounded-lg transition-all group ${
+                    currentLiveMeetingId === m.session_id ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-900'
+                  }`}
+                >
+                  <div className="font-medium truncate">{m.title}</div>
+                  <div className="text-[10px] opacity-50">GOOGLE MEET SYNC</div>
                 </button>
               ))}
             </div>
@@ -120,8 +257,17 @@ export default function Sidebar() {
                     currentSessionId === s.job_id ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-900'
                   }`}
                 >
-                  <div className="font-medium truncate">{s.source_filename}</div>
-                  <div className="text-[10px] opacity-50 uppercase">{s.status}</div>
+                  <div className="font-medium truncate text-[13px]">{s.source_filename}</div>
+                  <div className="flex items-center justify-between gap-2 mt-1.5">
+                    <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${getStatusColor(s.status)}`}>
+                      {s.status}
+                    </span>
+                    {s.created_at && (
+                      <span className="text-[10px] opacity-50 whitespace-nowrap truncate">
+                        {new Date(s.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))
             )}

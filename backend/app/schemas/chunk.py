@@ -15,6 +15,7 @@ class MultimodalChunk(BaseModel):
     spoken_text: str = Field(..., description="Transcribed speech for this time range")
     combined_text: str = Field(..., description="Contextually merged OCR and spoken text")
     screenshots: List[str] = Field(default_factory=list, description="List of screenshot filenames associated with this chunk")
+    keywords: Optional[List[str]] = Field(None, description="List of keywords for this chunk")
 
 
 class ChunkPayload(BaseModel):

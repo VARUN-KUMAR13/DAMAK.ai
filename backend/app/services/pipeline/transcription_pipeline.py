@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -19,6 +20,7 @@ from app.services.pipeline.chunk_service import ChunkingError, ChunkService
 from app.services.embeddings.embedding_service import EmbeddingError, EmbeddingService
 from app.services.storage.job_store import JobStore
 from app.services.transcription.whisper_service import WhisperTranscriptionService
+from app.services.intelligence.graph_enrichment_service import GraphEnrichmentService
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ class TranscriptionPipeline:
         ocr_service: OCRService,
         chunk_service: ChunkService,
         embedding_service: EmbeddingService,
+        graph_enrichment: GraphEnrichmentService,
     ) -> None:
         self._settings = settings
         self._job_store = job_store
@@ -45,6 +48,7 @@ class TranscriptionPipeline:
         self._ocr_service = ocr_service
         self._chunk_service = chunk_service
         self._embedding_service = embedding_service
+        self._graph_enrichment = graph_enrichment
 
     def run_sync(self, job_id: UUID) -> None:
         t0 = time.perf_counter()
@@ -58,6 +62,7 @@ class TranscriptionPipeline:
             # 1. Screenshots (Skip if already provided by live capture)
             if record.screenshots_metadata_path and record.screenshots_metadata_path.exists():
                 logger.info("Job %s: Using existing screenshots from live capture", job_id)
+                self._job_store.update_stage(job_id, "Extracting Screenshots")
                 # Load existing metadata
                 with open(record.screenshots_metadata_path, "r", encoding="utf-8") as f:
                     screenshots = json.load(f)
@@ -65,6 +70,7 @@ class TranscriptionPipeline:
                 if not record.video_path:
                     raise ScreenshotExtractionError("No video path or pre-extracted screenshots found.")
 
+                self._job_store.update_stage(job_id, "Extracting Screenshots")
                 t_shot = time.perf_counter()
                 screenshots = self._screenshot_service.extract_sync(record.video_path, job_id=job_id)
                 logger.info(
@@ -75,6 +81,7 @@ class TranscriptionPipeline:
                 )
 
             logger.info("Job %s: Starting OCR processing on %d screenshots...", job_id, len(screenshots))
+            self._job_store.update_stage(job_id, "Running OCR")
             t_ocr = time.perf_counter()
             ocr_results = self._ocr_service.run_ocr(job_id, screenshots)
             logger.info(
@@ -90,6 +97,7 @@ class TranscriptionPipeline:
                     raise AudioExtractionError("No video path or pre-extracted audio found.")
 
                 logger.info("Job %s: Starting Whisper transcription...", job_id)
+                self._job_store.update_stage(job_id, "Extracting Audio")
                 t_audio = time.perf_counter()
                 extract_audio_wav(
                     record.video_path,
@@ -105,8 +113,13 @@ class TranscriptionPipeline:
                 logger.info("Job %s: Using existing audio from live capture", job_id)
 
             logger.info("Job %s: Starting Whisper transcription on audio file...", job_id)
+            self._job_store.update_stage(job_id, "Transcribing Speech")
             t_transcribe = time.perf_counter()
-            payload = self._whisper.transcribe_sync(record.audio_path, job_id=job_id)
+            payload = self._whisper.transcribe(
+                audio_path=record.audio_path,
+                job_id=job_id,
+                source_filename=record.source_filename
+            )
             logger.info(
                 "Job %s: Whisper transcription completed (%d segments) in %.2fs",
                 job_id,
@@ -115,6 +128,7 @@ class TranscriptionPipeline:
             )
 
             logger.info("Job %s: Starting multimodal chunking...", job_id)
+            self._job_store.update_stage(job_id, "Generating Embeddings")
             t_chunk = time.perf_counter()
             chunks = self._chunk_service.generate_chunks(job_id, payload, ocr_results)
             logger.info(
@@ -125,6 +139,7 @@ class TranscriptionPipeline:
             )
 
             logger.info("Job %s: Starting embedding indexing...", job_id)
+            self._job_store.update_stage(job_id, "Finalizing Session")
             t_embed = time.perf_counter()
             self._embedding_service.index_chunks(job_id, chunks)
             logger.info(
@@ -135,25 +150,41 @@ class TranscriptionPipeline:
 
             self._job_store.save_transcript(job_id, payload)
             self._job_store.update_status(job_id, JobStatus.COMPLETED)
+            logger.info("Pipeline completed successfully for job %s", job_id)
+
+            # Trigger Graph Enrichment safely
+            logger.info("Pipeline: Starting optional graph enrichment for job %s", job_id)
+            try:
+                # We are in a worker thread without an event loop, so we create a new one to run this async task.
+                asyncio.run(self._graph_enrichment.run_enrichment(str(job_id)))
+            except Exception as e:
+                logger.warning("Pipeline: Graph enrichment skipped or failed for job %s: %s", job_id, e, exc_info=True)
+
             logger.info("Pipeline finished for job %s in %.2fs", job_id, time.perf_counter() - t0)
         except ScreenshotExtractionError as e:
             logger.exception("Screenshot extraction failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during screenshot extraction")
         except OCRError as e:
             logger.exception("OCR processing failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during OCR processing")
         except ChunkingError as e:
             logger.exception("Chunk generation failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during semantic chunking")
         except EmbeddingError as e:
             logger.exception("Embedding indexing failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during embedding generation")
         except AudioExtractionError as e:
             logger.exception("Audio extraction failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during audio extraction")
         except Exception as e:  # noqa: BLE001 — surface as job failure
             logger.exception("Transcription failed for job %s", job_id)
             self._job_store.mark_failed(job_id, _truncate(str(e)))
+            self._job_store.update_stage(job_id, "Failed during transcription pipeline")
 
 
 def _truncate(msg: str) -> str:

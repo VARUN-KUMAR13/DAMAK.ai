@@ -15,13 +15,16 @@ from app.services.storage.job_store import JobStore
 logger = logging.getLogger(__name__)
 
 
+from app.services.live.meeting_store import MeetingStore
+
 class NotesService:
     """Generates structured markdown notes from semantic chunks."""
 
-    def __init__(self, settings: Settings, job_store: JobStore, ollama: OllamaService) -> None:
+    def __init__(self, settings: Settings, job_store: JobStore, ollama: OllamaService, meeting_store: Optional[MeetingStore] = None) -> None:
         self._settings = settings
         self._job_store = job_store
         self._ollama = ollama
+        self._meeting_store = meeting_store
 
     async def generate_notes(self, session_id: UUID, mode: NotesMode) -> NotesResponse:
         """
@@ -31,15 +34,41 @@ class NotesService:
         
         # 1. Load chunks
         chunks_data = self._job_store.load_chunks(session_id)
+        
+        if not chunks_data and getattr(self, "_meeting_store", None):
+            meeting = self._meeting_store.get_meeting(str(session_id))
+            if meeting and "chunks" in meeting:
+                chunks_data = [
+                    {
+                        "start_time": c.get("start_time", 0.0),
+                        "spoken_text": c.get("text", ""),
+                        "slide_text": None
+                    } for c in meeting["chunks"]
+                ]
+
         if not chunks_data:
-            raise ValueError(f"No chunks found for session {session_id}. Has it been processed?")
+            return NotesResponse(
+                session_id=session_id,
+                title="Empty Session",
+                mode=mode,
+                content="> ⚠️ **Cannot generate notes: No audio or text captured for this session.**\n\nMake sure your microphone/tab audio was recorded and that the processing pipeline has finished running.",
+                key_concepts=[],
+                citations=[]
+            )
 
         # 2. Prepare context from chunks
-        # We'll limit context if it's too long, or summarize in stages.
-        # For now, we'll take all text and build a structured prompt.
+        # Chunk sampling strategy to avoid overwhelming the LLM
+        max_chunks = 30
+        if len(chunks_data) > max_chunks:
+            step = len(chunks_data) / max_chunks
+            sampled_chunks = [chunks_data[int(i * step)] for i in range(max_chunks)]
+        else:
+            sampled_chunks = chunks_data
+
         context_parts = []
-        for c in chunks_data:
-            part = f"[{c.get('start_time')}s] "
+        for i, c in enumerate(sampled_chunks):
+            start_time = c.get('start_time', 0.0)
+            part = f"--- Chunk {i+1} [Time: {start_time:.1f}s] ---\n"
             if c.get('slide_text'):
                 part += f"Slide: {c.get('slide_text')}\n"
             part += f"Speech: {c.get('spoken_text')}\n"
@@ -52,14 +81,34 @@ class NotesService:
 
         # 4. Generate via Ollama
         try:
-            content = await self._ollama.generate_response(prompt)
+            raw_response = await self._ollama.generate_response(prompt, json_format=True)
+            
+            import json
+            # Sometimes LLMs wrap json in ```json ... ```
+            text = raw_response
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+                
+            try:
+                data = json.loads(text)
+                content = data.get("content", "No notes generated.")
+                key_concepts = data.get("key_concepts", [])
+                citations = data.get("citations", [])
+            except Exception as e:
+                logger.error("Failed to parse notes LLM response: %s. Raw response: %s", e, raw_response, exc_info=True)
+                # Fallback if LLM fails to return valid JSON
+                content = "Notes generation succeeded but the AI response could not be formatted properly. Please try regenerating."
+                if "```" not in raw_response and "{" not in raw_response:
+                    content = raw_response  # It might have just returned plain text markdown
+                key_concepts = []
+                citations = []
+            
         except Exception as e:
-            logger.error("Failed to generate notes via Ollama: %s", e)
+            logger.error("Failed to generate notes via Ollama: %s", e, exc_info=True)
             raise RuntimeError(f"Notes generation failed: {e}") from e
 
-        # 5. Extract metadata (simplified for now)
-        key_concepts = self._extract_key_concepts(content)
-        
         # Get title from job store
         job_rec = self._job_store.get(session_id)
         title = job_rec.source_filename if job_rec else "Untitled Session"
@@ -70,7 +119,7 @@ class NotesService:
             mode=mode,
             content=content,
             key_concepts=key_concepts,
-            citations=[] # Future: Map citations back to chunks
+            citations=citations
         )
 
     def _build_notes_prompt(self, context: str, mode: NotesMode) -> str:
@@ -86,21 +135,13 @@ class NotesService:
             "You are an expert academic note-taker.\n"
             f"Mode: {mode.value.upper()}\n"
             f"Instruction: {instructions.get(mode, instructions[NotesMode.STANDARD])}\n\n"
-            "Use Markdown formatting (headers, lists, bold text).\n"
-            "Reference timestamps like [MM:SS] when possible based on the provided context.\n\n"
+            "You MUST return your response ONLY as a valid JSON object with the following properties:\n"
+            "- \"content\": A string containing the full markdown notes.\n"
+            "- \"key_concepts\": An array of up to 10 strings, each representing a core concept.\n"
+            "- \"citations\": An array of objects. Each object must have \"timestamp\" (number in seconds), and \"text\" (string summarizing the source).\n\n"
+            "Use Markdown formatting inside the 'content' string (headers, lists, bold text).\n"
             "Lecture Context:\n"
             f"{context}\n\n"
-            "Generated Notes:"
+            "Respond ONLY with the raw JSON object. Do not include markdown blocks outside the JSON."
         )
         return prompt
-
-    def _extract_key_concepts(self, content: str) -> List[str]:
-        # Very simple extraction for now - could be improved with LLM
-        lines = content.split('\n')
-        concepts = []
-        for line in lines:
-            if line.startswith('### ') or '**' in line:
-                concept = line.replace('### ', '').replace('**', '').strip()
-                if len(concept) < 50:
-                    concepts.append(concept)
-        return concepts[:10]

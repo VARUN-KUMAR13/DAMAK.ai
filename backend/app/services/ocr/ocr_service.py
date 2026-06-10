@@ -67,6 +67,12 @@ class OCRService:
         
         logger.info("Starting OCR processing for job %s, %d screenshots", job_id, len(screenshots_metadata))
         
+        # Intelligence: Skip PaddleOCR initialization if there are no screenshots to process
+        if not screenshots_metadata:
+            logger.info("Job %s: No screenshots to process, skipping OCR", job_id)
+            results_path.write_text("[]", encoding="utf-8")
+            return []
+            
         ocr_engine = self._get_ocr_engine()
         ocr_results: list[dict[str, Any]] = []
         processed_hashes: dict[str, str] = {} # hash -> first_filename
@@ -81,7 +87,17 @@ class OCRService:
             "errors": 0
         }
 
+        import time
+        frame_times = []
+
+        # Optional: Hard limit on frames to prevent runaway processing
+        MAX_FRAMES = self._settings.__dict__.get("screenshot_max_ocr_frames", 50)
+        
         for i, meta in enumerate(screenshots_metadata):
+            if stats["processed"] >= MAX_FRAMES:
+                logger.warning(f"Reached max OCR frames limit ({MAX_FRAMES}). Skipping remaining.")
+                break
+                
             filename = meta["filename"]
             img_path = screenshot_dir / filename
             
@@ -104,9 +120,14 @@ class OCRService:
 
             try:
                 stats["processed"] += 1
+                t_frame_start = time.perf_counter()
+                
                 # OCR processing
                 # result is a list of [box, (text, confidence)]
                 result = ocr_engine.ocr(str(img_path))
+                
+                t_frame_end = time.perf_counter()
+                frame_times.append(t_frame_end - t_frame_start)
                 
                 # Debug logging for the first 3 screenshots
                 if stats["processed"] <= 3:
@@ -142,9 +163,14 @@ class OCRService:
                 
             except Exception as e:
                 stats["errors"] += 1
-                logger.exception("OCR failed for screenshot %s: %s", filename, e)
+                logger.warning("OCR failed for screenshot %s: %s", filename, e, exc_info=True)
                 # We continue with other screenshots even if one fails
                 continue
+
+        if frame_times:
+            avg_time = sum(frame_times) / len(frame_times)
+            stats["avg_time_per_image_sec"] = round(avg_time, 3)
+            stats["total_ocr_duration_sec"] = round(sum(frame_times), 3)
 
         # Save results
         try:
