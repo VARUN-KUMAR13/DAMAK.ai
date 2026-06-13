@@ -20,9 +20,6 @@ from pydantic.json_schema import CoreSchemaOrFieldType, GenerateJsonSchema
 
 from app.api.v1.router import router as v1_router
 from app.api.v1 import live
-from app.api.v1 import study
-from app.api.v1 import graph
-from app.api.v1 import analytics
 from app.core.config import Settings, get_settings
 from app.core.logging import setup_logging
 from app.services.pipeline.transcription_pipeline import TranscriptionPipeline
@@ -33,13 +30,8 @@ from app.services.embeddings.embedding_service import EmbeddingService
 from app.services.llm.ollama_service import OllamaService
 from app.services.live.live_session_service import LiveSessionService
 from app.services.intelligence.notes_service import NotesService
-from app.services.intelligence.flashcard_service import FlashcardService
 from app.services.storage.job_store import JobStore
-from app.services.live.meeting_store import MeetingStore
 from app.services.transcription.whisper_service import WhisperTranscriptionService
-from app.services.intelligence.graph_service import GraphService
-from app.services.intelligence.graph_enrichment_service import GraphEnrichmentService
-from app.services.study.study_service import StudyService
 
 
 
@@ -91,12 +83,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         embedding_service = EmbeddingService(resolved)
         ollama_service = OllamaService(resolved)
         live_service = LiveSessionService(resolved, job_store)
-        meeting_store = MeetingStore(resolved)
-        notes_service = NotesService(resolved, job_store, ollama_service, meeting_store)
-        study_service = StudyService(resolved, job_store)
-        flashcard_service = FlashcardService(resolved, job_store, ollama_service, study_service)
-        graph_service = GraphService(resolved)
-        graph_enrichment = GraphEnrichmentService(resolved, job_store, ollama_service, graph_service)
+        notes_service = NotesService(resolved, job_store, ollama_service)
         pipeline = TranscriptionPipeline(
             resolved,
             job_store,
@@ -104,11 +91,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             screenshot_service,
             ocr_service,
             chunk_service,
-            embedding_service,
-            graph_enrichment
+            embedding_service
         )
         app.state.job_store = job_store
-        app.state.meeting_store = meeting_store
         app.state.whisper_service = whisper
         app.state.screenshot_service = screenshot_service
         app.state.ocr_service = ocr_service
@@ -117,10 +102,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         app.state.ollama_service = ollama_service
         app.state.live_service = live_service
         app.state.notes_service = notes_service
-        app.state.flashcard_service = flashcard_service
-        app.state.study_service = study_service
-        app.state.graph_service = graph_service
-        app.state.graph_enrichment = graph_enrichment
         app.state.pipeline = pipeline
 
         yield
@@ -138,9 +119,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     app.include_router(v1_router, prefix="/api/v1")
     app.include_router(live.router, prefix="/api/v1")
-    app.include_router(study.router, prefix="/api/v1")
-    app.include_router(graph.router, prefix="/api/v1")
-    app.include_router(analytics.router, prefix="/api/v1")
 
     @app.get("/health", tags=["health"])
     def health() -> JSONResponse:

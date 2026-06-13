@@ -3,58 +3,35 @@ import httpx
 import json
 import time
 import os
-import sqlite3
+import wave
+import struct
 
 BASE_URL = "http://127.0.0.1:8000"
 
-async def check_ollama():
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get("http://localhost:11434")
-            if r.status_code == 200:
-                print("PASS: Ollama is reachable.")
-                return True
-    except Exception as e:
-        print(f"FAIL: Ollama is not reachable: {e}")
-    return False
-
-def check_sqlite():
-    try:
-        db_path = "backend/damak.db"
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            conn.close()
-            print("PASS: SQLite loads correctly.")
-            return True
-        else:
-            print("FAIL: damak.db not found (will be created on first run). Assuming ok.")
-            return True
-    except Exception as e:
-        print(f"FAIL: SQLite check failed: {e}")
-        return False
+def create_dummy_wav(filename):
+    with wave.open(filename, 'w') as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(16000)
+        # write 1 second of silence
+        f.writeframes(struct.pack('h', 0) * 16000)
 
 async def run_uat():
-    print("--- STARTING UAT HEALTH CHECKS ---")
+    print("--- STARTING UAT ---")
+    if not os.path.exists("test.wav"):
+        create_dummy_wav("test.wav")
+        print("Created dummy test.wav")
     
-    if not await check_ollama():
-        return
-        
-    if not check_sqlite():
-        return
-    
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         # Check Health
         try:
             r = await client.get(f"{BASE_URL}/health")
             if r.status_code != 200:
-                print("FAIL: Backend is not running correctly. Status:", r.status_code)
+                print("Backend is not running. Please start the server.")
                 return
-            else:
-                print("PASS: FastAPI health endpoint returns OK.")
-                # We assume ChromaDB initializes successfully if health is OK (could be more explicit if health endpoint checks it)
-                print("PASS: ChromaDB initialized successfully (implied by backend health).")
+            print("PASS: Backend is running.")
         except Exception as e:
-            print(f"FAIL: Backend is not reachable: {e}")
+            print(f"Backend is not reachable: {e}")
             return
             
         print("\n==============================")
@@ -63,7 +40,6 @@ async def run_uat():
         
         # 1. Upload
         print("-> Uploading test.wav...")
-        t_upload_start = time.perf_counter()
         try:
             with open("test.wav", "rb") as f:
                 r = await client.post(f"{BASE_URL}/api/v1/jobs", files={"file": ("test.wav", f, "audio/wav")})
@@ -78,7 +54,7 @@ async def run_uat():
         # 2. Poll for Completion
         print("-> Waiting for processing to complete...")
         completed = False
-        for _ in range(150): # wait up to 15x2s = 30s
+        for _ in range(15): # wait up to 15x2s = 30s
             r = await client.get(f"{BASE_URL}/api/v1/jobs/{job_id}")
             status = r.json().get("status")
             if status == "completed":
@@ -89,39 +65,43 @@ async def run_uat():
                 return
             time.sleep(2)
             
-        t_upload_end = time.perf_counter()
         if not completed:
             print("FAIL: Job processing timed out.")
             return
-        upload_processing_time = t_upload_end - t_upload_start
-        print(f"PASS: Job processed successfully in {upload_processing_time:.2f}s.")
+        print("PASS: Job processed successfully.")
         
         # 3. Notes Generation
         print("-> Generating Notes...")
-        t_notes_start = time.perf_counter()
         try:
             r = await client.post(f"{BASE_URL}/api/v1/intelligence/notes/generate", json={"session_id": job_id, "mode": "standard"})
             assert r.status_code == 200, f"Notes failed: {r.text}"
             notes = r.json().get("content")
             assert notes is not None and len(notes) > 10, "Notes are empty."
-            t_notes_end = time.perf_counter()
-            notes_generation_time = t_notes_end - t_notes_start
-            print(f"PASS: Notes generated successfully in {notes_generation_time:.2f}s.")
+            print("PASS: Notes generated successfully.")
         except Exception as e:
             print(f"FAIL: Notes error: {e}")
             return
             
-        # 4. AI Tutor Chat
-        print("-> Asking AI Tutor...")
-        t_tutor_start = time.perf_counter()
+        # 4. Flashcards Generation
+        print("-> Generating Flashcards...")
         try:
-            r = await client.post(f"{BASE_URL}/api/v1/chat", json={"job_id": job_id, "question": "What is this audio about?", "top_k": 3})
+            r = await client.post(f"{BASE_URL}/api/v1/intelligence/flashcards/generate", json={"session_id": job_id, "count": 2, "type": "qa"})
+            assert r.status_code == 200, f"Flashcards failed: {r.text}"
+            fcs = r.json().get("flashcards")
+            assert len(fcs) == 2, f"Expected 2 flashcards, got {len(fcs) if fcs else 0}"
+            print("PASS: Flashcards generated successfully.")
+        except Exception as e:
+            print(f"FAIL: Flashcards error: {e}")
+            return
+            
+        # 5. AI Tutor Chat
+        print("-> Asking AI Tutor...")
+        try:
+            r = await client.post(f"{BASE_URL}/api/v1/chat", json={"job_id": job_id, "question": "What is this audio about?"})
             assert r.status_code == 200, f"Chat failed: {r.text}"
             ans = r.json().get("answer")
             assert ans is not None and len(ans) > 5, "Chat answer is empty."
-            t_tutor_end = time.perf_counter()
-            tutor_response_time = t_tutor_end - t_tutor_start
-            print(f"PASS: AI Tutor responded successfully in {tutor_response_time:.2f}s.")
+            print("PASS: AI Tutor responded successfully.")
         except Exception as e:
             print(f"FAIL: Chat error: {e}")
             return
@@ -131,7 +111,6 @@ async def run_uat():
         print("WORKFLOW 2: LIVE SESSION PIPELINE")
         print("==============================")
         
-        t_live_start = time.perf_counter()
         # 1. Start Live Session
         print("-> Starting Live Session...")
         try:
@@ -167,7 +146,7 @@ async def run_uat():
         # 4. Wait for processing
         print("-> Waiting for Live processing to complete...")
         completed_live = False
-        for _ in range(150):
+        for _ in range(15):
             r = await client.get(f"{BASE_URL}/api/v1/jobs/{live_id}")
             status = r.json().get("status")
             if status == "completed":
@@ -178,14 +157,12 @@ async def run_uat():
                 return
             time.sleep(2)
             
-        t_live_end = time.perf_counter()
         if not completed_live:
             print("FAIL: Live Job processing timed out.")
             return
-        live_processing_time = t_live_end - t_live_start
-        print(f"PASS: Live Session processed successfully in {live_processing_time:.2f}s.")
+        print("PASS: Live Session processed successfully.")
         
-        # 5. Notes & Chat for Live Session
+        # 5. Notes & Flashcards & Chat for Live Session
         print("-> Generating Notes for Live...")
         try:
             r = await client.post(f"{BASE_URL}/api/v1/intelligence/notes/generate", json={"session_id": live_id, "mode": "standard"})
@@ -195,9 +172,18 @@ async def run_uat():
             print(f"FAIL: Live Notes error: {e}")
             return
             
+        print("-> Generating Flashcards for Live...")
+        try:
+            r = await client.post(f"{BASE_URL}/api/v1/intelligence/flashcards/generate", json={"session_id": live_id, "count": 1, "type": "qa"})
+            assert r.status_code == 200, f"Live Flashcards failed: {r.text}"
+            print("PASS: Live Flashcards generated successfully.")
+        except Exception as e:
+            print(f"FAIL: Live Flashcards error: {e}")
+            return
+            
         print("-> Asking AI Tutor for Live...")
         try:
-            r = await client.post(f"{BASE_URL}/api/v1/chat", json={"job_id": live_id, "question": "Summarize the live session.", "top_k": 3})
+            r = await client.post(f"{BASE_URL}/api/v1/chat", json={"job_id": live_id, "question": "Summarize the live session."})
             assert r.status_code == 200, f"Live Chat failed: {r.text}"
             print("PASS: Live AI Tutor responded successfully.")
         except Exception as e:
@@ -205,11 +191,6 @@ async def run_uat():
             return
             
         print("\nALL WORKFLOWS PASSED SUCCESSFULLY.")
-        print("\n--- PERFORMANCE REPORT ---")
-        print(f"Upload processing time: {upload_processing_time:.2f}s")
-        print(f"Live processing time: {live_processing_time:.2f}s")
-        print(f"Notes generation time: {notes_generation_time:.2f}s")
-        print(f"AI Tutor response time: {tutor_response_time:.2f}s")
 
 if __name__ == "__main__":
     asyncio.run(run_uat())

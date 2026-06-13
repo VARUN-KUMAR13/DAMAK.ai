@@ -9,6 +9,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.deps import EmbeddingDep, JobStoreDep, OllamaDep, PipelineDep, SettingsDep
 from app.schemas.chat import ChatRequest, ChatResponse, RetrievedSource
@@ -136,6 +137,17 @@ def get_transcript(job_id: UUID, job_store: JobStoreDep) -> TranscriptPayload:
     return payload
 
 
+@router.get(
+    "/jobs/{job_id}/screenshots/{filename}",
+    summary="Get a screenshot image",
+)
+def get_screenshot(job_id: UUID, filename: str, settings: SettingsDep) -> FileResponse:
+    path = settings.storage_screenshots / str(job_id) / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    return FileResponse(path)
+
+
 @router.post(
     "/search",
     response_model=SearchResponse,
@@ -207,7 +219,7 @@ async def chat_rag(
         )
 
     # 2. Build RAG prompt
-    prompt = build_rag_prompt(request.question, retrieved_chunks)
+    prompt = build_rag_prompt(request.question, retrieved_chunks, request.mode)
     
     # 3. Generate response via Ollama
     try:

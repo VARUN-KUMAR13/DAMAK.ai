@@ -5,7 +5,7 @@ import { useStore } from "@/store/useStore";
 import { MessageSquareText } from "lucide-react";
 
 export default function TranscriptPanel() {
-  const { currentTranscript, highlightedTimestamp, currentLiveSessionId, currentLiveMeetingId } = useStore();
+  const { currentTranscript, highlightedTimestamp, currentLiveSessionId } = useStore();
   const transcriptRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -22,7 +22,7 @@ export default function TranscriptPanel() {
     }
   }, [highlightedTimestamp, currentTranscript]);
 
-  const isLive = currentLiveSessionId || currentLiveMeetingId;
+  const isLive = !!currentLiveSessionId;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">

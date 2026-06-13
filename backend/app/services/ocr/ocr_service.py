@@ -11,6 +11,8 @@ from typing import Any
 
 from paddleocr import PaddleOCR
 from app.core.config import Settings
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,54 @@ class OCRService:
         
         screenshots_metadata: List of dicts with 'filename', 'timestamp', 'frame_index'
         """
+        def _crop_letterbox(img_path: Path) -> None:
+            """Crops black/white letterboxing from an image and overwrites it."""
+            try:
+                img = cv2.imread(str(img_path))
+                if img is None:
+                    return
+                
+                # Convert to grayscale
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                
+                # Create a mask for non-black pixels (to crop black letterboxing)
+                _, thresh = cv2.threshold(gray, 15, 255, cv2.THRESH_BINARY)
+                
+                # Find contours
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                if contours:
+                    # Find the bounding box that encompasses all significant non-black regions
+                    x_min, y_min = img.shape[1], img.shape[0]
+                    x_max, y_max = 0, 0
+                    
+                    found_valid = False
+                    for c in contours:
+                        x, y, w, h = cv2.boundingRect(c)
+                        # Filter out very small noise (e.g. less than 20x20 pixels)
+                        if w > 20 and h > 20:
+                            x_min = min(x_min, x)
+                            y_min = min(y_min, y)
+                            x_max = max(x_max, x + w)
+                            y_max = max(y_max, y + h)
+                            found_valid = True
+                    
+                    if found_valid and (x_max > x_min) and (y_max > y_min):
+                        # Add a small padding (e.g., 5 pixels) to not cut off text
+                        pad = 5
+                        y_start = max(0, y_min - pad)
+                        y_end = min(img.shape[0], y_max + pad)
+                        x_start = max(0, x_min - pad)
+                        x_end = min(img.shape[1], x_max + pad)
+                        
+                        cropped = img[y_start:y_end, x_start:x_end]
+                        # Only overwrite if we actually cropped something significant
+                        if cropped.shape[0] < img.shape[0] - 10 or cropped.shape[1] < img.shape[1] - 10:
+                            cv2.imwrite(str(img_path), cropped)
+                            logger.debug("Cropped letterboxing for %s", img_path.name)
+            except Exception as e:
+                logger.warning(f"Failed to crop letterboxing for {img_path}: {e}")
+
         screenshot_dir = self._settings.storage_screenshots / str(job_id)
         ocr_out_dir = self._settings.storage_ocr / str(job_id)
         ocr_out_dir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +171,9 @@ class OCRService:
             try:
                 stats["processed"] += 1
                 t_frame_start = time.perf_counter()
+                
+                # Crop letterboxing before OCR
+                _crop_letterbox(img_path)
                 
                 # OCR processing
                 # result is a list of [box, (text, confidence)]

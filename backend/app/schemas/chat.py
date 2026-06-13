@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     question: str = Field(..., description="The user's question about the lecture.")
     job_id: Optional[UUID] = Field(None, description="Optional: filter by specific job_id.")
     top_k: int = Field(default=3, description="Number of relevant chunks to retrieve.")
+    mode: str = Field(default="Standard", description="The tutor mode to use.")
 
 
 class RetrievedSource(BaseModel):

@@ -20,7 +20,6 @@ from app.services.pipeline.chunk_service import ChunkingError, ChunkService
 from app.services.embeddings.embedding_service import EmbeddingError, EmbeddingService
 from app.services.storage.job_store import JobStore
 from app.services.transcription.whisper_service import WhisperTranscriptionService
-from app.services.intelligence.graph_enrichment_service import GraphEnrichmentService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,6 @@ class TranscriptionPipeline:
         ocr_service: OCRService,
         chunk_service: ChunkService,
         embedding_service: EmbeddingService,
-        graph_enrichment: GraphEnrichmentService,
     ) -> None:
         self._settings = settings
         self._job_store = job_store
@@ -48,7 +46,6 @@ class TranscriptionPipeline:
         self._ocr_service = ocr_service
         self._chunk_service = chunk_service
         self._embedding_service = embedding_service
-        self._graph_enrichment = graph_enrichment
 
     def run_sync(self, job_id: UUID) -> None:
         t0 = time.perf_counter()
@@ -151,14 +148,6 @@ class TranscriptionPipeline:
             self._job_store.save_transcript(job_id, payload)
             self._job_store.update_status(job_id, JobStatus.COMPLETED)
             logger.info("Pipeline completed successfully for job %s", job_id)
-
-            # Trigger Graph Enrichment safely
-            logger.info("Pipeline: Starting optional graph enrichment for job %s", job_id)
-            try:
-                # We are in a worker thread without an event loop, so we create a new one to run this async task.
-                asyncio.run(self._graph_enrichment.run_enrichment(str(job_id)))
-            except Exception as e:
-                logger.warning("Pipeline: Graph enrichment skipped or failed for job %s: %s", job_id, e, exc_info=True)
 
             logger.info("Pipeline finished for job %s in %.2fs", job_id, time.perf_counter() - t0)
         except ScreenshotExtractionError as e:

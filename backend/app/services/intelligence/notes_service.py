@@ -65,12 +65,26 @@ class NotesService:
         else:
             sampled_chunks = chunks_data
 
+        job_rec = self._job_store.get(session_id)
+        
         context_parts = []
+        seen_screenshots = set()
         for i, c in enumerate(sampled_chunks):
-            start_time = c.get('start_time', 0.0)
-            part = f"--- Chunk {i+1} [Time: {start_time:.1f}s] ---\n"
+            part = f"--- Chunk {i+1} ---\n"
             if c.get('slide_text'):
-                part += f"Slide: {c.get('slide_text')}\n"
+                part += f"Slide Text: {c.get('slide_text')}\n"
+            
+            # Intelligent Screenshot Integration
+            screenshots = c.get('screenshots', [])
+            if screenshots and job_rec and job_rec.screenshots_dir:
+                for s in screenshots:
+                    if s not in seen_screenshots:
+                        seen_screenshots.add(s)
+                        img_path = job_rec.screenshots_dir / s
+                        if img_path.exists():
+                            part += f"Available Image: [IMAGE_AVAILABLE: {s}]\n"
+                        break # Limit to 1 new image per chunk
+                        
             part += f"Speech: {c.get('spoken_text')}\n"
             context_parts.append(part)
         
@@ -83,25 +97,48 @@ class NotesService:
         try:
             raw_response = await self._ollama.generate_response(prompt, json_format=True)
             
-            import json
-            # Sometimes LLMs wrap json in ```json ... ```
-            text = raw_response
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
+            text = raw_response.strip()
+            if text.startswith("```json"):
+                text = text.split("```json", 1)[1]
+                if text.endswith("```"):
+                    text = text.rsplit("```", 1)[0]
+                text = text.strip()
+            elif text.startswith("```"):
+                text = text.split("```", 1)[1]
+                if text.endswith("```"):
+                    text = text.rsplit("```", 1)[0]
+                text = text.strip()
                 
             try:
+                import json
+                import re
                 data = json.loads(text)
                 content = data.get("content", "No notes generated.")
+                
+                # Replace image placeholders with actual valid URLs
+                def replace_img_url(match):
+                    caption = match.group(1)
+                    filename = match.group(2).strip()
+                    return f"![{caption}](/api/v1/jobs/{session_id}/screenshots/{filename})"
+                
+                content = re.sub(r'!\[([^\]]*)\]\(\[IMAGE_AVAILABLE:\s*(.+?)\]\)', replace_img_url, content)
+                content = re.sub(r'\[IMAGE_AVAILABLE:\s*(.+?)\]', '', content)
+                
                 key_concepts = data.get("key_concepts", [])
                 citations = data.get("citations", [])
             except Exception as e:
                 logger.error("Failed to parse notes LLM response: %s. Raw response: %s", e, raw_response, exc_info=True)
                 # Fallback if LLM fails to return valid JSON
                 content = "Notes generation succeeded but the AI response could not be formatted properly. Please try regenerating."
-                if "```" not in raw_response and "{" not in raw_response:
-                    content = raw_response  # It might have just returned plain text markdown
+                if "{" in text and '"content"' in text:
+                    # Attempt manual extraction
+                    try:
+                        extracted = text.split('"content": "')[1].split('",\n')[0]
+                        content = extracted.replace('\\n', '\n').replace('\\"', '"')
+                        content = re.sub(r'!\[([^\]]*)\]\(\[IMAGE_AVAILABLE:\s*(.+?)\]\)', replace_img_url, content)
+                        content = re.sub(r'\[IMAGE_AVAILABLE:\s*(.+?)\]', '', content)
+                    except:
+                        pass
                 key_concepts = []
                 citations = []
             
@@ -135,11 +172,21 @@ class NotesService:
             "You are an expert academic note-taker.\n"
             f"Mode: {mode.value.upper()}\n"
             f"Instruction: {instructions.get(mode, instructions[NotesMode.STANDARD])}\n\n"
+            "You MUST generate notes using EXACTLY the following structure as Markdown headers:\n"
+            "## Executive Summary\n"
+            "## Key Concepts\n"
+            "## Detailed Notes\n"
+            "## Examples\n"
+            "## Important Takeaways\n"
+            "## Revision Points\n\n"
+            "CRITICAL INSTRUCTIONS:\n"
+            "- Do NOT include any visible timestamps (like [Time: 0.0s]) in the 'content' string.\n"
+            "- If you encounter complex technical or medical terms, add a clearly labeled '> 💡 **Knowledge Enrichment:**' blockquote defining them ON A NEW LINE.\n"
+            "- If an 'Available Image' (e.g., [IMAGE_AVAILABLE: slide_1.jpg]) is provided in the context, you MUST embed it exactly into the relevant section of the Detailed Notes using a markdown image tag with a descriptive caption (e.g. `![Diagram showing the anatomy of the heart]([IMAGE_AVAILABLE: slide_1.jpg])`). Do NOT include the raw placeholder outside of an image tag.\n\n"
             "You MUST return your response ONLY as a valid JSON object with the following properties:\n"
             "- \"content\": A string containing the full markdown notes.\n"
             "- \"key_concepts\": An array of up to 10 strings, each representing a core concept.\n"
             "- \"citations\": An array of objects. Each object must have \"timestamp\" (number in seconds), and \"text\" (string summarizing the source).\n\n"
-            "Use Markdown formatting inside the 'content' string (headers, lists, bold text).\n"
             "Lecture Context:\n"
             f"{context}\n\n"
             "Respond ONLY with the raw JSON object. Do not include markdown blocks outside the JSON."

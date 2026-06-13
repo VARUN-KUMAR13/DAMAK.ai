@@ -69,7 +69,7 @@ class OllamaService:
             raise OllamaError(f"Ollama connection failed: {e}") from e
 
 
-def build_rag_prompt(question: str, retrieved_chunks: List[SearchResultChunk]) -> str:
+def build_rag_prompt(question: str, retrieved_chunks: List[SearchResultChunk], mode: str = "Standard") -> str:
     """
     Construct a structured RAG prompt for the LLM.
     """
@@ -86,15 +86,29 @@ def build_rag_prompt(question: str, retrieved_chunks: List[SearchResultChunk]) -
 
     context_str = "\n".join(context_parts)
 
+    instructions = {
+        "Standard": "Act as a university professor. Provide a balanced, comprehensive, and well-structured explanation using clear paragraphs. Maintain an academic but accessible tone.",
+        "Concise": "Act as an executive summarizer. Answer using EXACTLY 3-4 bullet points. Provide only the most critical information with absolutely no fluff or introductory text.",
+        "Detailed": "Act as a textbook author writing a deep-dive chapter. Break down the concept fundamentally. Include foundational principles, step-by-step mechanisms, real-world examples, and logical reasoning.",
+        "Beginner Friendly": "Act as an empathetic middle-school teacher. Assume the user has zero prior knowledge. Use extremely simple language and rely heavily on everyday analogies (e.g., cars, water pipes, baking) to explain complex ideas. Avoid all technical jargon unless you immediately explain it.",
+        "Exam Preparation": "Act as a strict exam grader. Structure your answer to maximize points: start with a crisp formal definition, list 3-4 critical bullet points, highlight 'Common Mistakes/Pitfalls', and end with a 'Likely Exam Question' based on the material.",
+        "Quick Summary": "Act as a concise technical dictionary. Define the answer in a maximum of 2 to 3 short sentences. Get straight to the point.",
+        "Interactive Tutor": "Act as a Socratic tutor. DO NOT give the direct or complete answer immediately. Instead, provide a small hint or foundational piece of knowledge, then ask the user a guiding question to help them figure out the rest of the answer themselves. Encourage critical thinking."
+    }
+
+    mode_instruction = instructions.get(mode, instructions["Standard"])
+
     prompt = (
-        "You are an AI lecture tutor.\n"
-        "Answer ONLY using the provided lecture context.\n"
-        "If the answer is not present in the context, clearly say:\n"
+        "You are an intelligent, engaging AI learning tutor.\n"
+        f"Mode: {mode}\n"
+        f"Persona Instruction: {mode_instruction}\n\n"
+        "You MUST adhere strictly to the persona instruction above. Your tone, structure, and length must reflect this mode perfectly.\n\n"
+        "Answer ONLY using the provided lecture context. If the answer is not present in the context, clearly say:\n"
         "\"I could not find that information in the lecture.\"\n\n"
         "Lecture Context:\n"
         f"{context_str}\n\n"
-        "Question:\n"
+        "User Question:\n"
         f"{question}\n\n"
-        "Answer:"
+        "Tutor Response:"
     )
     return prompt

@@ -10,6 +10,7 @@ export default function ChatPanel() {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("Standard");
 
   const currentJob = sessions.find(s => s.job_id === currentSessionId);
   const isCompleted = currentJob?.status === 'completed';
@@ -26,7 +27,8 @@ export default function ChatPanel() {
       const res = await api.post("/api/v1/chat", {
         question: input,
         job_id: currentSessionId,
-        top_k: 3
+        top_k: 3,
+        mode: mode
       });
 
       const aiMsg = { 
@@ -69,25 +71,6 @@ export default function ChatPanel() {
              {m.role === 'assistant' && <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center flex-shrink-0"><Bot size={16}/></div>}
              <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${m.role === 'user' ? 'bg-white text-black' : 'bg-zinc-900 border border-zinc-800'}`}>
                 <div className="leading-relaxed whitespace-pre-wrap">{m.content}</div>
-                {m.sources && m.sources.length > 0 && (
-                   <div className="mt-4 pt-4 border-t border-zinc-800 space-y-2">
-                      <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1">
-                        <Quote size={10} /> Grounded Sources
-                      </div>
-                      {m.sources.map((s: any, j: number) => (
-                        <div 
-                          key={j} 
-                          onClick={() => setHighlightedTimestamp(s.start_time)}
-                          className="text-xs text-zinc-400 bg-black/30 p-2 rounded border border-zinc-800 flex justify-between items-center group cursor-pointer hover:border-zinc-500"
-                        >
-                           <span className="truncate flex-1">...{s.spoken_text.substring(0, 50)}...</span>
-                           <span className="text-[10px] font-mono ml-2 text-zinc-600 group-hover:text-white transition-colors">
-                              {Math.floor(s.start_time / 60)}:{(s.start_time % 60).toFixed(0).padStart(2, '0')}
-                           </span>
-                        </div>
-                      ))}
-                   </div>
-                )}
              </div>
              {m.role === 'user' && <div className="w-8 h-8 rounded-full bg-zinc-200 flex items-center justify-center flex-shrink-0 text-black"><User size={16}/></div>}
           </div>
@@ -113,6 +96,21 @@ export default function ChatPanel() {
            >
              <Send size={18} />
            </button>
+        </div>
+        <div className="mt-2 flex justify-end">
+          <select 
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+          >
+            <option value="Standard">Standard</option>
+            <option value="Concise">Concise</option>
+            <option value="Detailed">Detailed</option>
+            <option value="Beginner Friendly">Beginner Friendly</option>
+            <option value="Exam Preparation">Exam Preparation</option>
+            <option value="Quick Summary">Quick Summary</option>
+            <option value="Interactive Tutor">Interactive Tutor</option>
+          </select>
         </div>
       </div>
     </div>

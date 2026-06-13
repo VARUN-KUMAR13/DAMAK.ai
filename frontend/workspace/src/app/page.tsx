@@ -7,8 +7,6 @@ import TimelinePanel from "@/components/TimelinePanel";
 import ChatPanel from "@/components/ChatPanel";
 import NotesPanel from "@/components/NotesPanel";
 import LiveCaptureManager from "@/components/LiveCaptureManager";
-import LiveMeetingManager from "@/components/LiveMeetingManager";
-import GlobalOmnibar from "@/components/GlobalOmnibar";
 import { useStore } from "@/store/useStore";
 import { api } from "@/lib/api";
 import { BookOpen, Loader2, Upload } from "lucide-react";
@@ -17,11 +15,9 @@ export default function Workspace() {
   const { 
     currentSessionId, setCurrentSession, 
     currentLiveSessionId, setCurrentLiveSession,
-    currentLiveMeetingId, setCurrentLiveMeeting,
     uploadingFile,
     sessions, setSessions, removeSession, 
     liveSessions, removeLiveSession,
-    liveMeetings, removeLiveMeeting,
     setTranscript, setScreenshots,
     addSession 
   } = useStore();
@@ -49,34 +45,12 @@ export default function Workspace() {
 
     } else if (currentLiveSessionId) {
       fetchLiveSessionData(currentLiveSessionId);
-    } else if (currentLiveMeetingId) {
-      fetchLiveMeetingData(currentLiveMeetingId);
     }
 
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [currentSessionId, currentLiveSessionId, currentLiveMeetingId]);
-
-  const fetchLiveMeetingData = async (id: string) => {
-    setLoading(true);
-    try {
-      const res = await api.get(`/api/v1/meetings/${id}`);
-      setTranscript([]);
-      setScreenshots([]);
-      console.log("Active Live Meeting:", res.data);
-    } catch (err: any) {
-      if (err.response?.status === 404) {
-        console.warn(`Live Meeting ${id} no longer exists. Clearing.`);
-        setCurrentLiveMeeting(null);
-        removeLiveMeeting(id);
-      } else {
-        console.error("Failed to fetch live meeting data", err);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [currentSessionId, currentLiveSessionId]);
 
   const fetchJobData = async (id: string) => {
     setLoading(true);
@@ -155,19 +129,16 @@ export default function Workspace() {
 
   const currentJob = sessions.find(s => (s.job_id || s.id) === currentSessionId);
   const currentLive = liveSessions.find(s => (s.session_id || s.id) === currentLiveSessionId);
-  const currentMeeting = liveMeetings.find(m => (m.session_id || m.id) === currentLiveMeetingId);
-  const activeSessionTitle = currentJob?.source_filename || currentLive?.title || currentMeeting?.title || "Knowledge Workspace";
+  const activeSessionTitle = currentJob?.source_filename || currentLive?.title || "Knowledge Workspace";
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-sm">
-      <GlobalOmnibar />
-      
       {/* Sidebar - Sessions */}
       <Sidebar />
 
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col overflow-hidden border-x border-zinc-800">
-        {!currentSessionId && !currentLiveSessionId && !currentLiveMeetingId ? (
+        {!currentSessionId && !currentLiveSessionId ? (
           uploadingFile ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
                <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-6">
@@ -223,19 +194,15 @@ export default function Workspace() {
             {/* Content Area */}
             <div className={`flex-1 flex overflow-hidden ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
               {/* Left: Visual Context */}
-              {!currentLiveMeetingId && (
-                <div className="w-1/3 flex flex-col border-r border-zinc-800">
-                   <TimelinePanel />
-                   <TranscriptPanel />
-                </div>
-              )}
+              <div className="w-1/3 flex flex-col border-r border-zinc-800">
+                 <TimelinePanel />
+                 <TranscriptPanel />
+              </div>
 
               {/* Right: Intelligence Panel */}
               <div className="flex-1 overflow-y-auto p-6">
                 {currentLiveSessionId ? (
                    <LiveCaptureManager sessionId={currentLiveSessionId} currentLive={currentLive} />
-                ) : currentLiveMeetingId ? (
-                   <LiveMeetingManager sessionId={currentLiveMeetingId} />
                 ) : currentJob?.status === 'failed' ? (
                   <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
                      <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center">

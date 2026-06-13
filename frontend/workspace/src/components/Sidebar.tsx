@@ -3,18 +3,16 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/store/useStore";
-import { BookOpen, History, Plus, Loader2, Upload, Search, BrainCircuit, Network } from "lucide-react";
+import { BookOpen, History, Plus, Loader2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 
 export default function Sidebar() {
   const { 
     currentSessionId, setCurrentSession, 
     currentLiveSessionId, setCurrentLiveSession,
-    currentLiveMeetingId, setCurrentLiveMeeting,
     uploadingFile, setUploadingFile,
     sessions, setSessions, addSession,
-    liveSessions, setLiveSessions, addLiveSession,
-    liveMeetings, setLiveMeetings, addLiveMeeting
+    liveSessions, setLiveSessions, addLiveSession
   } = useStore();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -27,14 +25,12 @@ export default function Sidebar() {
 
   const fetchData = async () => {
     try {
-      const [jobsRes, liveRes, meetingsRes] = await Promise.all([
+      const [jobsRes, liveRes] = await Promise.all([
         api.get("/api/v1/jobs"),
-        api.get("/api/v1/live/sessions"),
-        api.get("/api/v1/meetings")
+        api.get("/api/v1/live/sessions")
       ]);
       setSessions(jobsRes.data);
       setLiveSessions(liveRes.data);
-      setLiveMeetings(meetingsRes.data);
     } catch (err) {
       console.error("Failed to fetch sidebar data", err);
     } finally {
@@ -148,47 +144,7 @@ export default function Sidebar() {
         />
       </div>
       
-      {/* Temporarily Hidden for Core Stabilization
-      <div className="mb-6">
-        <button 
-          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-          className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 transition-colors rounded-lg p-2.5 text-zinc-400"
-        >
-          <div className="flex items-center gap-2">
-            <Search size={16} />
-            <span className="text-xs font-medium text-zinc-300">Global Brain Search</span>
-          </div>
-          <div className="flex gap-1">
-            <kbd className="text-[10px] font-mono bg-zinc-950 px-1.5 py-0.5 rounded text-zinc-500">⌘</kbd>
-            <kbd className="text-[10px] font-mono bg-zinc-950 px-1.5 py-0.5 rounded text-zinc-500">K</kbd>
-          </div>
-        </button>
-      </div>
-      */}
-
       <div className="flex-1 overflow-y-auto space-y-6">
-        {/* Temporarily Hidden for Core Stabilization
-        <Link 
-          href="/study"
-          className="flex items-center gap-3 px-2 py-2 group hover:bg-zinc-900 rounded-lg transition-colors"
-        >
-          <div className="bg-zinc-800 p-1.5 rounded-md text-zinc-400 group-hover:text-blue-400 group-hover:bg-blue-500/10 transition-colors">
-            <BrainCircuit size={16} />
-          </div>
-          <span className="font-medium text-zinc-300">Study Center</span>
-        </Link>
-        
-        <Link 
-          href="/brain"
-          className="flex items-center gap-3 px-2 py-2 group hover:bg-zinc-900 rounded-lg transition-colors"
-        >
-          <div className="bg-zinc-800 p-1.5 rounded-md text-zinc-400 group-hover:text-purple-400 group-hover:bg-purple-500/10 transition-colors">
-            <Network size={16} />
-          </div>
-          <span className="font-medium text-zinc-300">Global Brain</span>
-        </Link>
-        */}
-
         {/* Active Live Sessions */}
         {liveSessions.length > 0 && (
           <div>
@@ -213,29 +169,7 @@ export default function Sidebar() {
           </div>
         )}
 
-        {/* Active Google Meet Meetings */}
-        {liveMeetings.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-orange-500 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
-              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-              Live Meetings (Meet)
-            </div>
-            <div className="space-y-1">
-              {liveMeetings.map((m) => (
-                <button
-                  key={m.session_id}
-                  onClick={() => setCurrentLiveMeeting(m.session_id)}
-                  className={`w-full text-left p-3 rounded-lg transition-all group ${
-                    currentLiveMeetingId === m.session_id ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-900'
-                  }`}
-                >
-                  <div className="font-medium truncate">{m.title}</div>
-                  <div className="text-[10px] opacity-50">GOOGLE MEET SYNC</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         {/* Processed Jobs */}
         <div>
